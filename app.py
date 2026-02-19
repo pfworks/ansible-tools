@@ -13,19 +13,33 @@ def worker():
         if task is None:
             break
         task_type = task.get('type')
+        model = task.get('model', 'codellama:13b')
         if task_type == 'explain':
-            task['result'] = explain_playbook(task['playbook'])
+            task['result'] = explain_playbook(task['playbook'], model)
         elif task_type == 'generate_code':
-            task['result'] = generate_code(task['description'])
+            task['result'] = generate_code(task['description'], model)
         elif task_type == 'explain_code':
-            task['result'] = explain_code(task['code'])
+            task['result'] = explain_code(task['code'], model)
         else:
-            task['result'] = generate_playbook(task['commands'])
+            task['result'] = generate_playbook(task['commands'], model)
         task_queue.task_done()
 
-def generate_playbook(commands):
+def generate_playbook(commands, model='codellama:13b'):
     import time
     import yaml
+    
+    # Check if model exists
+    try:
+        ollama.show(model)
+    except:
+        return {
+            'playbook': '',
+            'elapsed': 0,
+            'error': f'Model {model} not found. Please run: ollama pull {model}',
+            'prompt_tokens': 0,
+            'response_tokens': 0,
+            'total_tokens': 0
+        }
     
     start_time = time.time()
     
@@ -38,7 +52,7 @@ Generate a complete Ansible playbook with proper tasks."""
 
     max_retries = 3
     for attempt in range(max_retries):
-        response = ollama.chat(model='codellama:13b', messages=[
+        response = ollama.chat(model=model, messages=[
             {'role': 'user', 'content': prompt}
         ])
         
@@ -69,8 +83,21 @@ Generate a complete Ansible playbook with proper tasks."""
         'total_tokens': response.get('prompt_eval_count', 0) + response.get('eval_count', 0)
     }
 
-def explain_playbook(playbook):
+def explain_playbook(playbook, model='codellama:13b'):
     import time
+    
+    # Check if model exists
+    try:
+        ollama.show(model)
+    except:
+        return {
+            'explanation': '',
+            'elapsed': 0,
+            'error': f'Model {model} not found. Please run: ollama pull {model}',
+            'prompt_tokens': 0,
+            'response_tokens': 0,
+            'total_tokens': 0
+        }
     
     start_time = time.time()
     
@@ -78,7 +105,7 @@ def explain_playbook(playbook):
 
 {playbook}"""
 
-    response = ollama.chat(model='codellama:13b', messages=[
+    response = ollama.chat(model=model, messages=[
         {'role': 'user', 'content': prompt}
     ])
     
@@ -92,8 +119,21 @@ def explain_playbook(playbook):
         'total_tokens': response.get('prompt_eval_count', 0) + response.get('eval_count', 0)
     }
 
-def generate_code(description):
+def generate_code(description, model='codellama:13b'):
     import time
+    
+    # Check if model exists
+    try:
+        ollama.show(model)
+    except:
+        return {
+            'code': '',
+            'elapsed': 0,
+            'error': f'Model {model} not found. Please run: ollama pull {model}',
+            'prompt_tokens': 0,
+            'response_tokens': 0,
+            'total_tokens': 0
+        }
     
     start_time = time.time()
     
@@ -101,7 +141,7 @@ def generate_code(description):
 
 {description}"""
 
-    response = ollama.chat(model='codellama:13b', messages=[
+    response = ollama.chat(model=model, messages=[
         {'role': 'user', 'content': prompt}
     ])
     
@@ -115,8 +155,21 @@ def generate_code(description):
         'total_tokens': response.get('prompt_eval_count', 0) + response.get('eval_count', 0)
     }
 
-def explain_code(code):
+def explain_code(code, model='codellama:13b'):
     import time
+    
+    # Check if model exists
+    try:
+        ollama.show(model)
+    except:
+        return {
+            'explanation': '',
+            'elapsed': 0,
+            'error': f'Model {model} not found. Please run: ollama pull {model}',
+            'prompt_tokens': 0,
+            'response_tokens': 0,
+            'total_tokens': 0
+        }
     
     start_time = time.time()
     
@@ -124,7 +177,7 @@ def explain_code(code):
 
 {code}"""
 
-    response = ollama.chat(model='codellama:13b', messages=[
+    response = ollama.chat(model=model, messages=[
         {'role': 'user', 'content': prompt}
     ])
     
@@ -147,8 +200,9 @@ def index():
 @app.route('/generate', methods=['POST'])
 def generate():
     commands = request.json.get('commands', '')
+    model = request.json.get('model', 'codellama:13b')
     
-    task = {'commands': commands, 'result': None}
+    task = {'commands': commands, 'model': model, 'result': None}
     task_queue.put(task)
     task_queue.join()
     
@@ -161,8 +215,9 @@ def upload():
     
     file = request.files['file']
     commands = file.read().decode('utf-8')
+    model = request.form.get('model', 'codellama:13b')
     
-    task = {'commands': commands, 'result': None}
+    task = {'commands': commands, 'model': model, 'result': None}
     task_queue.put(task)
     task_queue.join()
     
@@ -171,8 +226,9 @@ def upload():
 @app.route('/explain', methods=['POST'])
 def explain():
     playbook = request.json.get('playbook', '')
+    model = request.json.get('model', 'codellama:13b')
     
-    task = {'playbook': playbook, 'result': None, 'type': 'explain'}
+    task = {'playbook': playbook, 'model': model, 'result': None, 'type': 'explain'}
     task_queue.put(task)
     task_queue.join()
     
@@ -181,8 +237,9 @@ def explain():
 @app.route('/generate-code', methods=['POST'])
 def generate_code_endpoint():
     description = request.json.get('description', '')
+    model = request.json.get('model', 'codellama:13b')
     
-    task = {'description': description, 'result': None, 'type': 'generate_code'}
+    task = {'description': description, 'model': model, 'result': None, 'type': 'generate_code'}
     task_queue.put(task)
     task_queue.join()
     
@@ -191,8 +248,9 @@ def generate_code_endpoint():
 @app.route('/explain-code', methods=['POST'])
 def explain_code_endpoint():
     code = request.json.get('code', '')
+    model = request.json.get('model', 'codellama:13b')
     
-    task = {'code': code, 'result': None, 'type': 'explain_code'}
+    task = {'code': code, 'model': model, 'result': None, 'type': 'explain_code'}
     task_queue.put(task)
     task_queue.join()
     

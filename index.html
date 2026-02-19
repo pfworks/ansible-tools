@@ -34,6 +34,16 @@
         <h1>Ansible Tools</h1>
         
         <div class="section">
+            <label>Model: 
+                <select id="modelSelect">
+                    <option value="codellama:7b">CodeLlama 7B (Fast, ~4GB RAM)</option>
+                    <option value="codellama:13b" selected>CodeLlama 13B (Balanced, ~8GB RAM)</option>
+                    <option value="codellama:34b">CodeLlama 34B (Best Quality, ~20GB RAM, requires 48GB+ total)</option>
+                </select>
+            </label>
+        </div>
+        
+        <div class="section">
             <label>
                 <input type="radio" name="service" value="generate" checked onchange="switchService()"> 
                 Shell → Ansible
@@ -213,13 +223,14 @@
                 return;
             }
 
-            showStatus('Generating playbook...', 'loading');
+            showStatus('Generating playbook', 'loading');
             
             try {
+                const model = document.getElementById('modelSelect').value;
                 const response = await fetch('/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ commands })
+                    body: JSON.stringify({ commands, model })
                 });
                 
                 const data = await response.json();
@@ -244,10 +255,11 @@
             showStatus('Explaining playbook', 'loading', 'statusExplain');
             
             try {
+                const model = document.getElementById('modelSelect').value;
                 const response = await fetch('/explain', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ playbook })
+                    body: JSON.stringify({ playbook, model })
                 });
                 
                 const data = await response.json();
@@ -279,10 +291,11 @@
             showStatus('Generating code', 'loading', 'statusCode');
             
             try {
+                const model = document.getElementById('modelSelect').value;
                 const response = await fetch('/generate-code', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ description })
+                    body: JSON.stringify({ description, model })
                 });
                 
                 const data = await response.json();
@@ -303,10 +316,11 @@
             showStatus('Explaining code', 'loading', 'statusCodeExplain');
             
             try {
+                const model = document.getElementById('modelSelect').value;
                 const response = await fetch('/explain-code', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code })
+                    body: JSON.stringify({ code, model })
                 });
                 
                 const data = await response.json();
