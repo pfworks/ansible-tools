@@ -1,0 +1,113 @@
+---
+- name: Deploy Ansible Ollama Tools
+  hosts: all
+  become: yes
+  vars:
+    venv_path: /export/ollama
+    html_path: /export/html
+    app_user: "{{ ansible_user }}"
+    
+  tasks:
+    - name: Install dependencies (Debian/Ubuntu)
+      apt:
+        name:
+          - python3
+          - python3-venv
+          - python3-pip
+          - curl
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Install dependencies (macOS)
+      homebrew:
+        name:
+          - python3
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+      become: no
+
+    - name: Create directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ app_user }}"
+        mode: '0755'
+      loop:
+        - "{{ venv_path }}"
+        - "{{ html_path }}"
+
+    - name: Install Ollama
+      shell: curl -fsSL https://ollama.com/install.sh | sh
+      args:
+        creates: /usr/local/bin/ollama
+
+    - name: Create Python virtual environment
+      become_user: "{{ app_user }}"
+      command: python3 -m venv {{ venv_path }}
+      args:
+        creates: "{{ venv_path }}/bin/python3"
+      become: no
+
+    - name: Install Python packages
+      pip:
+        name:
+          - ollama
+          - pyyaml
+          - flask
+        virtualenv: "{{ venv_path }}"
+      become_user: "{{ app_user }}"
+      become: no
+
+    - name: Pull Ollama model
+      command: ollama pull codellama:13b
+      async: 3600
+      poll: 30
+      become_user: "{{ app_user }}"
+      become: no
+
+    - name: Copy app.py
+      copy:
+        src: app.py
+        dest: /usr/local/bin/app.py
+        mode: '0755'
+
+    - name: Copy index.html
+      copy:
+        src: index.html
+        dest: "{{ html_path }}/index.html"
+        owner: "{{ app_user }}"
+        mode: '0644'
+
+    - name: Copy systemd service file (Linux)
+      copy:
+        src: ansible-ollama.service
+        dest: /etc/systemd/system/ansible-ollama.service
+        mode: '0644'
+      when: ansible_facts['os_family'] != "Darwin"
+
+    - name: Enable and start service (Linux)
+      systemd:
+        name: ansible-ollama
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      when: ansible_facts['os_family'] != "Darwin"
+
+    - name: Copy LaunchDaemon plist (macOS)
+      template:
+        src: com.ooma.ansible-ollama.plist
+        dest: /Library/LaunchDaemons/com.ooma.ansible-ollama.plist
+        mode: '0644'
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Load LaunchDaemon (macOS)
+      command: launchctl load /Library/LaunchDaemons/com.ooma.ansible-ollama.plist
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Open firewall port (Linux)
+      ufw:
+        rule: allow
+        port: '5000'
+        proto: tcp
+      when: ansible_facts['os_family'] == "Debian"
