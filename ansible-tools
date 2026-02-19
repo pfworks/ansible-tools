@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+import os
+import sys
+import requests
+import json
+
+API_URL = os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000')
+MODEL = os.environ.get('ANSIBLE_TOOLS_MODEL', 'codellama:13b')
+
+def print_help():
+    print("""Ansible Tools CLI
+
+Environment Variables:
+  ANSIBLE_TOOLS_API    API endpoint (default: http://localhost:5000)
+  ANSIBLE_TOOLS_MODEL  Model to use (default: codellama:13b)
+
+Commands:
+  shell2ansible <file>     Convert shell commands to Ansible playbook
+  explain-ansible <file>   Explain an Ansible playbook
+  generate-code <file>     Generate code from description
+  explain-code <file>      Explain code
+  chat                     Interactive chat mode
+
+Examples:
+  export ANSIBLE_TOOLS_API=http://ansible.corp.ooma.com:5000
+  export ANSIBLE_TOOLS_MODEL=codellama:13b
+  
+  ansible-tools shell2ansible commands.txt > playbook.yml
+  ansible-tools explain-ansible playbook.yml
+  ansible-tools chat
+""")
+
+def call_api(endpoint, data):
+    try:
+        response = requests.post(f"{API_URL}{endpoint}", json=data)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def check_queue():
+    try:
+        response = requests.get(f"{API_URL}/queue-status")
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('queue_size', 0)
+    except:
+        pass
+    return 0
+
+def shell2ansible(file_path):
+    with open(file_path, 'r') as f:
+        commands = f.read()
+    
+    queue_size = check_queue()
+    if queue_size > 0:
+        print(f"Queue position: #{queue_size + 1}", file=sys.stderr)
+    print("Generating playbook...", file=sys.stderr)
+    
+    result = call_api('/generate', {'commands': commands, 'model': MODEL})
+    
+    if result.get('error'):
+        print(f"Error: {result['error']}", file=sys.stderr)
+        sys.exit(1)
+    
+    print(result['playbook'])
+    status = f"\n# Generated in {result['elapsed']}s | Tokens: {result['total_tokens']}"
+    if result.get('queue_position'):
+        status += f" | Was #{result['queue_position']} in queue"
+    print(status, file=sys.stderr)
+
+def explain_ansible(file_path):
+    with open(file_path, 'r') as f:
+        playbook = f.read()
+    
+    queue_size = check_queue()
+    if queue_size > 0:
+        print(f"Queue position: #{queue_size + 1}", file=sys.stderr)
+    print("Explaining playbook...", file=sys.stderr)
+    
+    result = call_api('/explain', {'playbook': playbook, 'model': MODEL})
+    
+    if result.get('error'):
+        print(f"Error: {result['error']}", file=sys.stderr)
+        sys.exit(1)
+    
+    print(result['explanation'])
+    status = f"\n# Explained in {result['elapsed']}s | Tokens: {result['total_tokens']}"
+    if result.get('queue_position'):
+        status += f" | Was #{result['queue_position']} in queue"
+    print(status, file=sys.stderr)
+
+def generate_code(file_path):
+    with open(file_path, 'r') as f:
+        description = f.read()
+    
+    queue_size = check_queue()
+    if queue_size > 0:
+        print(f"Queue position: #{queue_size + 1}", file=sys.stderr)
+    print("Generating code...", file=sys.stderr)
+    
+    result = call_api('/generate-code', {'description': description, 'model': MODEL})
+    
+    if result.get('error'):
+        print(f"Error: {result['error']}", file=sys.stderr)
+        sys.exit(1)
+    
+    print(result['code'])
+    status = f"\n# Generated in {result['elapsed']}s | Tokens: {result['total_tokens']}"
+    if result.get('queue_position'):
+        status += f" | Was #{result['queue_position']} in queue"
+    print(status, file=sys.stderr)
+
+def explain_code(file_path):
+    with open(file_path, 'r') as f:
+        code = f.read()
+    
+    queue_size = check_queue()
+    if queue_size > 0:
+        print(f"Queue position: #{queue_size + 1}", file=sys.stderr)
+    print("Explaining code...", file=sys.stderr)
+    
+    result = call_api('/explain-code', {'code': code, 'model': MODEL})
+    
+    if result.get('error'):
+        print(f"Error: {result['error']}", file=sys.stderr)
+        sys.exit(1)
+    
+    print(result['explanation'])
+    status = f"\n# Explained in {result['elapsed']}s | Tokens: {result['total_tokens']}"
+    if result.get('queue_position'):
+        status += f" | Was #{result['queue_position']} in queue"
+    print(status, file=sys.stderr)
+
+def chat():
+    print(f"Ansible Tools Chat (Model: {MODEL})")
+    print("Commands: shell2ansible, explain-ansible, generate-code, explain-code, quit")
+    print()
+    
+    while True:
+        try:
+            mode = input("Mode [shell2ansible/explain-ansible/generate-code/explain-code]: ").strip()
+            
+            if mode == 'quit':
+                break
+            
+            if mode not in ['shell2ansible', 'explain-ansible', 'generate-code', 'explain-code']:
+                print("Invalid mode. Try again.")
+                continue
+            
+            print("Enter your input (Ctrl+D when done):")
+            lines = []
+            try:
+                while True:
+                    line = input()
+                    lines.append(line)
+            except EOFError:
+                pass
+            
+            content = '\n'.join(lines)
+            
+            queue_size = check_queue()
+            if queue_size > 0:
+                print(f"\nQueue position: #{queue_size + 1}")
+            
+            if mode == 'shell2ansible':
+                print("Generating playbook...")
+                result = call_api('/generate', {'commands': content, 'model': MODEL})
+                print(f"\n{result.get('playbook', '')}")
+            elif mode == 'explain-ansible':
+                print("Explaining playbook...")
+                result = call_api('/explain', {'playbook': content, 'model': MODEL})
+                print(f"\n{result.get('explanation', '')}")
+            elif mode == 'generate-code':
+                print("Generating code...")
+                result = call_api('/generate-code', {'description': content, 'model': MODEL})
+                print(f"\n{result.get('code', '')}")
+            elif mode == 'explain-code':
+                print("Explaining code...")
+                result = call_api('/explain-code', {'code': content, 'model': MODEL})
+                print(f"\n{result.get('explanation', '')}")
+            
+            if result.get('error'):
+                print(f"\nError: {result['error']}")
+            else:
+                status = f"\n[{result['elapsed']}s | {result['total_tokens']} tokens"
+                if result.get('queue_position'):
+                    status += f" | Was #{result['queue_position']} in queue"
+                status += "]"
+                print(status)
+            print()
+            
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print_help()
+        sys.exit(1)
+    
+    command = sys.argv[1]
+    
+    if command == 'help' or command == '--help' or command == '-h':
+        print_help()
+    elif command == 'shell2ansible' and len(sys.argv) == 3:
+        shell2ansible(sys.argv[2])
+    elif command == 'explain-ansible' and len(sys.argv) == 3:
+        explain_ansible(sys.argv[2])
+    elif command == 'generate-code' and len(sys.argv) == 3:
+        generate_code(sys.argv[2])
+    elif command == 'explain-code' and len(sys.argv) == 3:
+        explain_code(sys.argv[2])
+    elif command == 'chat':
+        chat()
+    else:
+        print_help()
+        sys.exit(1)

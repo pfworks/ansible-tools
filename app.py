@@ -2,31 +2,43 @@
 from flask import Flask, request, jsonify, send_from_directory
 import ollama
 from queue import Queue
-from threading import Thread
+from threading import Thread, Event
+import uuid
 
 app = Flask(__name__)
 task_queue = Queue()
+active_task = None
+task_results = {}
 
 def worker():
+    global active_task
     while True:
         task = task_queue.get()
         if task is None:
             break
+        active_task = task
+        task_id = task['id']
         task_type = task.get('type')
         model = task.get('model', 'codellama:13b')
+        
         if task_type == 'explain':
-            task['result'] = explain_playbook(task['playbook'], model)
+            result = explain_playbook(task['playbook'], model)
         elif task_type == 'generate_code':
-            task['result'] = generate_code(task['description'], model)
+            result = generate_code(task['description'], model)
         elif task_type == 'explain_code':
-            task['result'] = explain_code(task['code'], model)
+            result = explain_code(task['code'], model)
         else:
-            task['result'] = generate_playbook(task['commands'], model)
+            result = generate_playbook(task['commands'], model)
+        
+        task_results[task_id] = result
+        task['event'].set()
+        active_task = None
         task_queue.task_done()
 
 def generate_playbook(commands, model='codellama:13b'):
     import time
     import yaml
+    import re
     
     # Check if model exists
     try:
@@ -57,6 +69,11 @@ Generate a complete Ansible playbook with proper tasks."""
         ])
         
         playbook_text = response['message']['content']
+        
+        # Strip markdown code blocks
+        playbook_text = re.sub(r'^```(?:yaml|yml)?\n', '', playbook_text)
+        playbook_text = re.sub(r'\n```$', '', playbook_text)
+        playbook_text = playbook_text.strip()
         
         # Validate YAML
         try:
@@ -197,16 +214,44 @@ Thread(target=worker, daemon=True).start()
 def index():
     return send_from_directory('/export/html', 'index.html')
 
+@app.route('/queue-status')
+def queue_status():
+    queue_size = task_queue.qsize()
+    if active_task is not None:
+        queue_size += 1
+    
+    status = {
+        'queue_size': queue_size,
+        'active': active_task is not None
+    }
+    
+    if active_task:
+        status['active_type'] = active_task.get('type', 'generate')
+        status['active_model'] = active_task.get('model', 'unknown')
+    
+    return jsonify(status)
+
 @app.route('/generate', methods=['POST'])
 def generate():
     commands = request.json.get('commands', '')
     model = request.json.get('model', 'codellama:13b')
     
-    task = {'commands': commands, 'model': model, 'result': None}
-    task_queue.put(task)
-    task_queue.join()
+    queue_size = task_queue.qsize()
+    if active_task is not None:
+        queue_size += 1
     
-    return jsonify(task['result'])
+    task_id = str(uuid.uuid4())
+    event = Event()
+    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event}
+    task_queue.put(task)
+    
+    event.wait()
+    result = task_results.pop(task_id)
+    
+    if queue_size > 0:
+        result['queue_position'] = queue_size + 1
+    
+    return jsonify(result)
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -217,44 +262,88 @@ def upload():
     commands = file.read().decode('utf-8')
     model = request.form.get('model', 'codellama:13b')
     
-    task = {'commands': commands, 'model': model, 'result': None}
-    task_queue.put(task)
-    task_queue.join()
+    queue_size = task_queue.qsize()
+    if active_task is not None:
+        queue_size += 1
     
-    return jsonify(task['result'])
+    task_id = str(uuid.uuid4())
+    event = Event()
+    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event}
+    task_queue.put(task)
+    
+    event.wait()
+    result = task_results.pop(task_id)
+    
+    if queue_size > 0:
+        result['queue_position'] = queue_size + 1
+    
+    return jsonify(result)
 
 @app.route('/explain', methods=['POST'])
 def explain():
     playbook = request.json.get('playbook', '')
     model = request.json.get('model', 'codellama:13b')
     
-    task = {'playbook': playbook, 'model': model, 'result': None, 'type': 'explain'}
-    task_queue.put(task)
-    task_queue.join()
+    queue_size = task_queue.qsize()
+    if active_task is not None:
+        queue_size += 1
     
-    return jsonify(task['result'])
+    task_id = str(uuid.uuid4())
+    event = Event()
+    task = {'id': task_id, 'playbook': playbook, 'model': model, 'event': event, 'type': 'explain'}
+    task_queue.put(task)
+    
+    event.wait()
+    result = task_results.pop(task_id)
+    
+    if queue_size > 0:
+        result['queue_position'] = queue_size + 1
+    
+    return jsonify(result)
 
 @app.route('/generate-code', methods=['POST'])
 def generate_code_endpoint():
     description = request.json.get('description', '')
     model = request.json.get('model', 'codellama:13b')
     
-    task = {'description': description, 'model': model, 'result': None, 'type': 'generate_code'}
-    task_queue.put(task)
-    task_queue.join()
+    queue_size = task_queue.qsize()
+    if active_task is not None:
+        queue_size += 1
     
-    return jsonify(task['result'])
+    task_id = str(uuid.uuid4())
+    event = Event()
+    task = {'id': task_id, 'description': description, 'model': model, 'event': event, 'type': 'generate_code'}
+    task_queue.put(task)
+    
+    event.wait()
+    result = task_results.pop(task_id)
+    
+    if queue_size > 0:
+        result['queue_position'] = queue_size + 1
+    
+    return jsonify(result)
 
 @app.route('/explain-code', methods=['POST'])
 def explain_code_endpoint():
     code = request.json.get('code', '')
     model = request.json.get('model', 'codellama:13b')
     
-    task = {'code': code, 'model': model, 'result': None, 'type': 'explain_code'}
-    task_queue.put(task)
-    task_queue.join()
+    queue_size = task_queue.qsize()
+    if active_task is not None:
+        queue_size += 1
     
-    return jsonify(task['result'])
+    task_id = str(uuid.uuid4())
+    event = Event()
+    task = {'id': task_id, 'code': code, 'model': model, 'event': event, 'type': 'explain_code'}
+    task_queue.put(task)
+    
+    event.wait()
+    result = task_results.pop(task_id)
+    
+    if queue_size > 0:
+        result['queue_position'] = queue_size + 1
+    
+    return jsonify(result)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

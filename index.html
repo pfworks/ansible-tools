@@ -223,7 +223,18 @@
                 return;
             }
 
-            showStatus('Generating playbook', 'loading');
+            // Check queue position
+            try {
+                const queueResp = await fetch('/queue-status');
+                const queueData = await queueResp.json();
+                if (queueData.queue_size > 0) {
+                    showStatus(`Queue position: #${queueData.queue_size + 1} - Generating playbook`, 'loading');
+                } else {
+                    showStatus('Generating playbook', 'loading');
+                }
+            } catch {
+                showStatus('Generating playbook', 'loading');
+            }
             
             try {
                 const model = document.getElementById('modelSelect').value;
@@ -235,10 +246,14 @@
                 
                 const data = await response.json();
                 document.getElementById('playbook').value = data.playbook;
+                let statusMsg = `Generated in ${data.elapsed}s | Tokens: ${data.total_tokens} (prompt: ${data.prompt_tokens}, response: ${data.response_tokens})`;
+                if (data.queue_position) {
+                    statusMsg += ` | Was #${data.queue_position} in queue`;
+                }
                 if (data.error) {
                     showStatus(`Warning: ${data.error} | Time: ${data.elapsed}s`, 'error');
                 } else {
-                    showStatus(`Generated in ${data.elapsed}s | Tokens: ${data.total_tokens} (prompt: ${data.prompt_tokens}, response: ${data.response_tokens})`, 'success');
+                    showStatus(statusMsg, 'success');
                 }
             } catch (error) {
                 showStatus('Error generating playbook: ' + error.message, 'error');
@@ -252,7 +267,18 @@
                 return;
             }
 
-            showStatus('Explaining playbook', 'loading', 'statusExplain');
+            // Check queue position
+            try {
+                const queueResp = await fetch('/queue-status');
+                const queueData = await queueResp.json();
+                if (queueData.queue_size > 0) {
+                    showStatus(`Queue position: #${queueData.queue_size + 1} - Explaining playbook`, 'loading', 'statusExplain');
+                } else {
+                    showStatus('Explaining playbook', 'loading', 'statusExplain');
+                }
+            } catch {
+                showStatus('Explaining playbook', 'loading', 'statusExplain');
+            }
             
             try {
                 const model = document.getElementById('modelSelect').value;
@@ -264,7 +290,11 @@
                 
                 const data = await response.json();
                 document.getElementById('explanation').value = data.explanation;
-                showStatus(`Explained in ${data.elapsed}s | Tokens: ${data.total_tokens}`, 'success', 'statusExplain');
+                let statusMsg = `Explained in ${data.elapsed}s | Tokens: ${data.total_tokens}`;
+                if (data.queue_position) {
+                    statusMsg += ` | Was #${data.queue_position} in queue`;
+                }
+                showStatus(statusMsg, 'success', 'statusExplain');
             } catch (error) {
                 showStatus('Error explaining playbook: ' + error.message, 'error', 'statusExplain');
             }
@@ -288,7 +318,18 @@
                 return;
             }
 
-            showStatus('Generating code', 'loading', 'statusCode');
+            // Check queue position
+            try {
+                const queueResp = await fetch('/queue-status');
+                const queueData = await queueResp.json();
+                if (queueData.queue_size > 0) {
+                    showStatus(`Queue position: #${queueData.queue_size + 1} - Generating code`, 'loading', 'statusCode');
+                } else {
+                    showStatus('Generating code', 'loading', 'statusCode');
+                }
+            } catch {
+                showStatus('Generating code', 'loading', 'statusCode');
+            }
             
             try {
                 const model = document.getElementById('modelSelect').value;
@@ -300,7 +341,11 @@
                 
                 const data = await response.json();
                 document.getElementById('generatedCode').value = data.code;
-                showStatus(`Generated in ${data.elapsed}s | Tokens: ${data.total_tokens}`, 'success', 'statusCode');
+                let statusMsg = `Generated in ${data.elapsed}s | Tokens: ${data.total_tokens}`;
+                if (data.queue_position) {
+                    statusMsg += ` | Was #${data.queue_position} in queue`;
+                }
+                showStatus(statusMsg, 'success', 'statusCode');
             } catch (error) {
                 showStatus('Error generating code: ' + error.message, 'error', 'statusCode');
             }
@@ -313,7 +358,18 @@
                 return;
             }
 
-            showStatus('Explaining code', 'loading', 'statusCodeExplain');
+            // Check queue position
+            try {
+                const queueResp = await fetch('/queue-status');
+                const queueData = await queueResp.json();
+                if (queueData.queue_size > 0) {
+                    showStatus(`Queue position: #${queueData.queue_size + 1} - Explaining code`, 'loading', 'statusCodeExplain');
+                } else {
+                    showStatus('Explaining code', 'loading', 'statusCodeExplain');
+                }
+            } catch {
+                showStatus('Explaining code', 'loading', 'statusCodeExplain');
+            }
             
             try {
                 const model = document.getElementById('modelSelect').value;
@@ -325,7 +381,11 @@
                 
                 const data = await response.json();
                 document.getElementById('codeExplanation').value = data.explanation;
-                showStatus(`Explained in ${data.elapsed}s | Tokens: ${data.total_tokens}`, 'success', 'statusCodeExplain');
+                let statusMsg = `Explained in ${data.elapsed}s | Tokens: ${data.total_tokens}`;
+                if (data.queue_position) {
+                    statusMsg += ` | Was #${data.queue_position} in queue`;
+                }
+                showStatus(statusMsg, 'success', 'statusCodeExplain');
             } catch (error) {
                 showStatus('Error explaining code: ' + error.message, 'error', 'statusCodeExplain');
             }
