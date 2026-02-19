@@ -11,7 +11,7 @@ class AnsibleToolsGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Ansible Tools")
-        self.root.geometry("900x700")
+        self.root.geometry("900x850")
         
         self.api_url = tk.StringVar(value=os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000'))
         self.model = tk.StringVar(value='codellama:13b')
