@@ -16,7 +16,7 @@
         .primary:hover { background: #0056b3; }
         .secondary { background: #6c757d; color: white; }
         .secondary:hover { background: #545b62; }
-        #status, #statusExplain { margin: 10px 0; padding: 10px; border-radius: 4px; display: none; }
+        #status, #statusExplain, #statusCode, #statusCodeExplain { margin: 10px 0; padding: 10px; border-radius: 4px; display: none; }
         .loading { background: #fff3cd; color: #856404; }
         .loading::after { content: '...'; animation: dots 1.5s steps(4, end) infinite; }
         @keyframes dots {
@@ -36,11 +36,19 @@
         <div class="section">
             <label>
                 <input type="radio" name="service" value="generate" checked onchange="switchService()"> 
-                Shell Commands → Ansible Playbook
+                Shell → Ansible
             </label>
             <label style="margin-left: 20px;">
                 <input type="radio" name="service" value="explain" onchange="switchService()"> 
-                Ansible Playbook → Explanation
+                Ansible → Explanation
+            </label>
+            <label style="margin-left: 20px;">
+                <input type="radio" name="service" value="generateCode" onchange="switchService()"> 
+                Description → Code
+            </label>
+            <label style="margin-left: 20px;">
+                <input type="radio" name="service" value="explainCode" onchange="switchService()"> 
+                Code → Explanation
             </label>
         </div>
 
@@ -90,6 +98,52 @@
                 </div>
             </div>
         </div>
+
+        <div id="generateCodeService" style="display: none;">
+            <div class="section">
+                <h3>Code Description</h3>
+                <textarea id="description" placeholder="Describe the code you want to generate..."></textarea>
+                <div class="buttons">
+                    <input type="file" id="fileInputCode" accept=".txt" style="display: none;">
+                    <button class="secondary" onclick="document.getElementById('fileInputCode').click()">Upload File</button>
+                    <button class="primary" onclick="generateCode()">Generate Code</button>
+                    <button class="secondary" onclick="clearAll()">Clear</button>
+                </div>
+            </div>
+
+            <div id="statusCode"></div>
+
+            <div class="section">
+                <h3>Generated Code</h3>
+                <textarea id="generatedCode" readonly placeholder="Generated code will appear here..."></textarea>
+                <div class="buttons">
+                    <button class="secondary" onclick="copyToClipboard('generatedCode')">Copy</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="explainCodeService" style="display: none;">
+            <div class="section">
+                <h3>Code</h3>
+                <textarea id="codeInput" placeholder="Paste your code here..."></textarea>
+                <div class="buttons">
+                    <input type="file" id="fileInputCodeExplain" accept="*" style="display: none;">
+                    <button class="secondary" onclick="document.getElementById('fileInputCodeExplain').click()">Upload File</button>
+                    <button class="primary" onclick="explainCode()">Explain Code</button>
+                    <button class="secondary" onclick="clearAll()">Clear</button>
+                </div>
+            </div>
+
+            <div id="statusCodeExplain"></div>
+
+            <div class="section">
+                <h3>Explanation</h3>
+                <textarea id="codeExplanation" readonly placeholder="Explanation will appear here..."></textarea>
+                <div class="buttons">
+                    <button class="secondary" onclick="copyToClipboard('codeExplanation')">Copy</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -115,15 +169,34 @@
             }
         });
 
+        document.getElementById('fileInputCode').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('description').value = e.target.result;
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        document.getElementById('fileInputCodeExplain').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('codeInput').value = e.target.result;
+                };
+                reader.readAsText(file);
+            }
+        });
+
         function switchService() {
             const service = document.querySelector('input[name="service"]:checked').value;
-            if (service === 'generate') {
-                document.getElementById('generateService').style.display = 'block';
-                document.getElementById('explainService').style.display = 'none';
-            } else {
-                document.getElementById('generateService').style.display = 'none';
-                document.getElementById('explainService').style.display = 'block';
-            }
+            document.getElementById('generateService').style.display = service === 'generate' ? 'block' : 'none';
+            document.getElementById('explainService').style.display = service === 'explain' ? 'block' : 'none';
+            document.getElementById('generateCodeService').style.display = service === 'generateCode' ? 'block' : 'none';
+            document.getElementById('explainCodeService').style.display = service === 'explainCode' ? 'block' : 'none';
         }
 
         function showStatus(message, type, statusId = 'status') {
@@ -189,8 +262,59 @@
             const element = document.getElementById(elementId);
             element.select();
             document.execCommand('copy');
-            const statusId = elementId === 'explanation' ? 'statusExplain' : 'status';
+            let statusId = 'status';
+            if (elementId === 'explanation') statusId = 'statusExplain';
+            else if (elementId === 'generatedCode') statusId = 'statusCode';
+            else if (elementId === 'codeExplanation') statusId = 'statusCodeExplain';
             showStatus('Copied to clipboard!', 'success', statusId);
+        }
+
+        async function generateCode() {
+            const description = document.getElementById('description').value;
+            if (!description.trim()) {
+                showStatus('Please enter a code description', 'error', 'statusCode');
+                return;
+            }
+
+            showStatus('Generating code', 'loading', 'statusCode');
+            
+            try {
+                const response = await fetch('/generate-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ description })
+                });
+                
+                const data = await response.json();
+                document.getElementById('generatedCode').value = data.code;
+                showStatus(`Generated in ${data.elapsed}s | Tokens: ${data.total_tokens}`, 'success', 'statusCode');
+            } catch (error) {
+                showStatus('Error generating code: ' + error.message, 'error', 'statusCode');
+            }
+        }
+
+        async function explainCode() {
+            const code = document.getElementById('codeInput').value;
+            if (!code.trim()) {
+                showStatus('Please enter some code', 'error', 'statusCodeExplain');
+                return;
+            }
+
+            showStatus('Explaining code', 'loading', 'statusCodeExplain');
+            
+            try {
+                const response = await fetch('/explain-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                
+                const data = await response.json();
+                document.getElementById('codeExplanation').value = data.explanation;
+                showStatus(`Explained in ${data.elapsed}s | Tokens: ${data.total_tokens}`, 'success', 'statusCodeExplain');
+            } catch (error) {
+                showStatus('Error explaining code: ' + error.message, 'error', 'statusCodeExplain');
+            }
         }
 
         function download() {
@@ -216,10 +340,18 @@
                 document.getElementById('commands').value = '';
                 document.getElementById('playbook').value = '';
                 document.getElementById('status').style.display = 'none';
-            } else {
+            } else if (service === 'explain') {
                 document.getElementById('playbookInput').value = '';
                 document.getElementById('explanation').value = '';
                 document.getElementById('statusExplain').style.display = 'none';
+            } else if (service === 'generateCode') {
+                document.getElementById('description').value = '';
+                document.getElementById('generatedCode').value = '';
+                document.getElementById('statusCode').style.display = 'none';
+            } else {
+                document.getElementById('codeInput').value = '';
+                document.getElementById('codeExplanation').value = '';
+                document.getElementById('statusCodeExplain').style.display = 'none';
             }
         }
     </script>

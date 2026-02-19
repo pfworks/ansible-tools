@@ -12,8 +12,13 @@ def worker():
         task = task_queue.get()
         if task is None:
             break
-        if task.get('type') == 'explain':
+        task_type = task.get('type')
+        if task_type == 'explain':
             task['result'] = explain_playbook(task['playbook'])
+        elif task_type == 'generate_code':
+            task['result'] = generate_code(task['description'])
+        elif task_type == 'explain_code':
+            task['result'] = explain_code(task['code'])
         else:
             task['result'] = generate_playbook(task['commands'])
         task_queue.task_done()
@@ -87,6 +92,52 @@ def explain_playbook(playbook):
         'total_tokens': response.get('prompt_eval_count', 0) + response.get('eval_count', 0)
     }
 
+def generate_code(description):
+    import time
+    
+    start_time = time.time()
+    
+    prompt = f"""Generate clean, well-commented code based on this description. Include the language and provide working code:
+
+{description}"""
+
+    response = ollama.chat(model='codellama:13b', messages=[
+        {'role': 'user', 'content': prompt}
+    ])
+    
+    elapsed = time.time() - start_time
+    
+    return {
+        'code': response['message']['content'],
+        'elapsed': round(elapsed, 2),
+        'prompt_tokens': response.get('prompt_eval_count', 0),
+        'response_tokens': response.get('eval_count', 0),
+        'total_tokens': response.get('prompt_eval_count', 0) + response.get('eval_count', 0)
+    }
+
+def explain_code(code):
+    import time
+    
+    start_time = time.time()
+    
+    prompt = f"""Explain what this code does in clear, simple language. Describe the logic, functions, and purpose:
+
+{code}"""
+
+    response = ollama.chat(model='codellama:13b', messages=[
+        {'role': 'user', 'content': prompt}
+    ])
+    
+    elapsed = time.time() - start_time
+    
+    return {
+        'explanation': response['message']['content'],
+        'elapsed': round(elapsed, 2),
+        'prompt_tokens': response.get('prompt_eval_count', 0),
+        'response_tokens': response.get('eval_count', 0),
+        'total_tokens': response.get('prompt_eval_count', 0) + response.get('eval_count', 0)
+    }
+
 Thread(target=worker, daemon=True).start()
 
 @app.route('/')
@@ -122,6 +173,26 @@ def explain():
     playbook = request.json.get('playbook', '')
     
     task = {'playbook': playbook, 'result': None, 'type': 'explain'}
+    task_queue.put(task)
+    task_queue.join()
+    
+    return jsonify(task['result'])
+
+@app.route('/generate-code', methods=['POST'])
+def generate_code_endpoint():
+    description = request.json.get('description', '')
+    
+    task = {'description': description, 'result': None, 'type': 'generate_code'}
+    task_queue.put(task)
+    task_queue.join()
+    
+    return jsonify(task['result'])
+
+@app.route('/explain-code', methods=['POST'])
+def explain_code_endpoint():
+    code = request.json.get('code', '')
+    
+    task = {'code': code, 'result': None, 'type': 'explain_code'}
     task_queue.put(task)
     task_queue.join()
     
