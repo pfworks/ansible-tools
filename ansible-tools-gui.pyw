@@ -33,7 +33,8 @@ class AnsibleToolsGUI:
         model_combo['values'] = (
             'codellama:7b (Fast, ~4GB RAM)',
             'codellama:13b (Balanced, ~8GB RAM)',
-            'codellama:34b (Best Quality, ~20GB RAM)'
+            'codellama:34b (Best Quality, ~20GB RAM)',
+            'codellama:70b (Highest Quality, ~40GB RAM)'
         )
         model_combo.current(1)
         model_combo.pack(side=tk.LEFT, padx=5)
@@ -123,6 +124,8 @@ class AnsibleToolsGUI:
             return 'codellama:7b'
         elif '34b' in model_str.lower():
             return 'codellama:34b'
+        elif '70b' in model_str.lower():
+            return 'codellama:70b'
         else:
             return 'codellama:13b'
     
