@@ -70,10 +70,14 @@ Generate a complete Ansible playbook with proper tasks."""
         
         playbook_text = response['message']['content']
         
-        # Strip markdown code blocks
-        playbook_text = re.sub(r'^```(?:yaml|yml)?\n', '', playbook_text)
-        playbook_text = re.sub(r'\n```$', '', playbook_text)
-        playbook_text = playbook_text.strip()
+        # Strip markdown code blocks (handle multiple variations)
+        import re
+        # Remove opening code fence with optional language
+        playbook_text = re.sub(r'^```[a-z]*\s*\n', '', playbook_text, flags=re.MULTILINE)
+        # Remove closing code fence
+        playbook_text = re.sub(r'\n```\s*$', '', playbook_text, flags=re.MULTILINE)
+        # Remove any remaining backticks at start/end
+        playbook_text = playbook_text.strip('`').strip()
         
         # Validate YAML
         try:

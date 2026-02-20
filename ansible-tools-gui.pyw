@@ -17,7 +17,60 @@ class AnsibleToolsGUI:
         self.model = tk.StringVar(value='codellama:13b')
         self.service = tk.StringVar(value='generate')
         
+        self.create_menu()
+        self.create_menu()
         self.create_widgets()
+    
+    def create_menu(self):
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
+        help_menu.add_command(label="View Error Log", command=self.show_error_log)
+    
+    def show_about(self):
+        about_text = """Ansible Tools GUI
+Version 1.0
+
+A local LLM-powered tool for:
+- Converting shell commands to Ansible playbooks
+- Explaining Ansible playbooks
+- Generating code from descriptions
+- Explaining code
+
+Uses Ollama with CodeLlama models (7B, 13B, 34B, 70B)
+
+GitHub: https://github.com/your-repo/ansible-tools
+"""
+        messagebox.showinfo("About Ansible Tools", about_text)
+    
+    def show_error_log(self):
+        if not hasattr(self, 'last_error') or not self.last_error:
+            messagebox.showinfo("Error Log", "No errors recorded in this session.")
+            return
+        
+        # Create a new window with copyable error text
+        error_window = tk.Toplevel(self.root)
+        error_window.title("Error Log")
+        error_window.geometry("600x400")
+        
+        error_text = scrolledtext.ScrolledText(error_window, wrap=tk.WORD)
+        error_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        error_text.insert(1.0, self.last_error)
+        error_text.config(state=tk.NORMAL)  # Make it copyable
+        
+        ttk.Button(error_window, text="Copy to Clipboard", 
+                  command=lambda: self.copy_error_to_clipboard(error_text)).pack(pady=5)
+        ttk.Button(error_window, text="Close", command=error_window.destroy).pack(pady=5)
+    
+    def copy_error_to_clipboard(self, text_widget):
+        error_text = text_widget.get(1.0, tk.END)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(error_text)
+        messagebox.showinfo("Copied", "Error log copied to clipboard!")
     
     def create_widgets(self):
         # Top frame - API URL, Model and Service selection
@@ -190,8 +243,10 @@ class AnsibleToolsGUI:
                 result = json.loads(response.read().decode())
             
             if result.get('error'):
+                error_msg = f"Error: {result['error']}"
+                self.last_error = f"Timestamp: {self.get_timestamp()}\nService: {service}\nModel: {model}\n\n{error_msg}\n\nFull Response:\n{result}"
                 self.root.after(0, lambda: self.status_label.config(
-                    text=f"Error: {result['error']}", foreground="red"))
+                    text=error_msg, foreground="red"))
             else:
                 output = result.get(output_key, '')
                 self.root.after(0, lambda: self.output_text.delete(1.0, tk.END))
@@ -205,8 +260,14 @@ class AnsibleToolsGUI:
                     text=status_msg, foreground="green"))
         
         except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            self.last_error = f"Timestamp: {self.get_timestamp()}\nException: {type(e).__name__}\n\n{str(e)}"
             self.root.after(0, lambda: self.status_label.config(
-                text=f"Error: {str(e)}", foreground="red"))
+                text=error_msg, foreground="red"))
+    
+    def get_timestamp(self):
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     def copy_output(self):
         output = self.output_text.get(1.0, tk.END).strip()
