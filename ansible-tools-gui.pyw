@@ -21,12 +21,14 @@ class AnsibleToolsGUI:
         self.service = tk.StringVar(value='generate')
         self.dark_mode = tk.BooleanVar(value=config.get('dark_mode', False))
         self.text_color = tk.StringVar(value=config.get('text_color', 'green'))
+        self.font_choice = tk.StringVar(value=config.get('font', 'default'))
         
         self.create_menu()
         self.create_menu()
         self.create_widgets()
         if self.dark_mode.get():
             self.toggle_dark_mode()
+        self.apply_font()
     
     def load_config(self):
         try:
@@ -41,7 +43,8 @@ class AnsibleToolsGUI:
                 json.dump({
                     'api_url': self.api_url.get(),
                     'dark_mode': self.dark_mode.get(),
-                    'text_color': self.text_color.get()
+                    'text_color': self.text_color.get(),
+                    'font': self.font_choice.get()
                 }, f)
         except:
             pass
@@ -54,8 +57,18 @@ class AnsibleToolsGUI:
         settings_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_checkbutton(label="Dark Mode", variable=self.dark_mode, command=self.toggle_and_save)
+        settings_menu.add_separator()
         settings_menu.add_radiobutton(label="Green Text", variable=self.text_color, value='green', command=self.toggle_and_save)
         settings_menu.add_radiobutton(label="Amber Text", variable=self.text_color, value='amber', command=self.toggle_and_save)
+        settings_menu.add_separator()
+        
+        font_menu = tk.Menu(settings_menu, tearoff=0)
+        settings_menu.add_cascade(label="Font", menu=font_menu)
+        font_menu.add_radiobutton(label="Default", variable=self.font_choice, value='default', command=self.font_and_save)
+        font_menu.add_radiobutton(label="Courier", variable=self.font_choice, value='courier', command=self.font_and_save)
+        font_menu.add_radiobutton(label="Consolas", variable=self.font_choice, value='consolas', command=self.font_and_save)
+        font_menu.add_radiobutton(label="Terminal", variable=self.font_choice, value='terminal', command=self.font_and_save)
+        font_menu.add_radiobutton(label="Fixedsys", variable=self.font_choice, value='fixedsys', command=self.font_and_save)
         
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -107,6 +120,22 @@ GitHub: https://github.com/your-repo/ansible-tools
     def toggle_and_save(self):
         self.toggle_dark_mode()
         self.save_config()
+    
+    def font_and_save(self):
+        self.apply_font()
+        self.save_config()
+    
+    def apply_font(self):
+        fonts = {
+            'default': ('TkDefaultFont', 10),
+            'courier': ('Courier', 10),
+            'consolas': ('Consolas', 10),
+            'terminal': ('Terminal', 10),
+            'fixedsys': ('Fixedsys', 10)
+        }
+        font = fonts.get(self.font_choice.get(), fonts['default'])
+        self.input_text.config(font=font)
+        self.output_text.config(font=font)
     
     def toggle_dark_mode(self):
         if self.dark_mode.get():
