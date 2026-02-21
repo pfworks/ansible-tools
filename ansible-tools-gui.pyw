@@ -14,33 +14,48 @@ class AnsibleToolsGUI:
         self.root.geometry("900x850")
         self.config_file = os.path.expanduser('~/.ansible-tools-gui.json')
         
-        saved_server = self.load_config()
-        self.api_url = tk.StringVar(value=saved_server or os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000'))
+        config = self.load_config()
+        self.api_url = tk.StringVar(value=config.get('api_url', os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000')))
         self.api_url.trace_add('write', lambda *args: self.save_config())
         self.model = tk.StringVar(value='codellama:13b')
         self.service = tk.StringVar(value='generate')
+        self.dark_mode = tk.BooleanVar(value=config.get('dark_mode', False))
+        self.text_color = tk.StringVar(value=config.get('text_color', 'green'))
         
         self.create_menu()
         self.create_menu()
         self.create_widgets()
+        if self.dark_mode.get():
+            self.toggle_dark_mode()
     
     def load_config(self):
         try:
             with open(self.config_file, 'r') as f:
-                return json.load(f).get('api_url')
+                return json.load(f)
         except:
-            return None
+            return {}
     
     def save_config(self):
         try:
             with open(self.config_file, 'w') as f:
-                json.dump({'api_url': self.api_url.get()}, f)
+                json.dump({
+                    'api_url': self.api_url.get(),
+                    'dark_mode': self.dark_mode.get(),
+                    'text_color': self.text_color.get()
+                }, f)
         except:
             pass
     
     def create_menu(self):
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
+        
+        # Settings menu
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        settings_menu.add_checkbutton(label="Dark Mode", variable=self.dark_mode, command=self.toggle_and_save)
+        settings_menu.add_radiobutton(label="Green Text", variable=self.text_color, value='green', command=self.toggle_and_save)
+        settings_menu.add_radiobutton(label="Amber Text", variable=self.text_color, value='amber', command=self.toggle_and_save)
         
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -88,6 +103,48 @@ GitHub: https://github.com/your-repo/ansible-tools
         self.root.clipboard_clear()
         self.root.clipboard_append(error_text)
         messagebox.showinfo("Copied", "Error log copied to clipboard!")
+    
+    def toggle_and_save(self):
+        self.toggle_dark_mode()
+        self.save_config()
+    
+    def toggle_dark_mode(self):
+        if self.dark_mode.get():
+            bg, fg = '#2b2b2b', '#00ff00' if self.text_color.get() == 'green' else '#ffb000'
+            text_bg, button_bg = '#1e1e1e', '#3c3c3c'
+        else:
+            bg, fg, text_bg, button_bg = '#f0f0f0', '#000000', '#ffffff', '#e0e0e0'
+        
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('TFrame', background=bg)
+        style.configure('TLabelframe', background=bg, foreground=fg)
+        style.configure('TLabelframe.Label', background=bg, foreground=fg)
+        style.configure('TLabel', background=bg, foreground=fg)
+        style.configure('TButton', background=button_bg, foreground=fg)
+        style.configure('TRadiobutton', background=bg, foreground=fg)
+        style.configure('TCombobox', fieldbackground=text_bg, background=button_bg, foreground=fg)
+        style.configure('TEntry', fieldbackground=text_bg, background=text_bg, foreground=fg)
+        style.map('TCombobox', fieldbackground=[('readonly', text_bg)])
+        style.map('TCombobox', selectbackground=[('readonly', text_bg)])
+        style.map('TCombobox', selectforeground=[('readonly', fg)])
+        
+        self.root.config(bg=bg)
+        self.input_text.config(bg=text_bg, fg=fg, insertbackground=fg)
+        self.output_text.config(bg=text_bg, fg=fg, insertbackground=fg)
+        
+        for widget in self.root.winfo_children():
+            self.apply_theme(widget, bg, fg, text_bg)
+    
+    def apply_theme(self, widget, bg, fg, text_bg):
+        try:
+            if widget.winfo_class() == 'Entry':
+                widget.config(bg=text_bg, fg=fg, insertbackground=fg)
+        except:
+            pass
+        
+        for child in widget.winfo_children():
+            self.apply_theme(child, bg, fg, text_bg)
     
     def create_widgets(self):
         # Top frame - API URL, Model and Service selection
