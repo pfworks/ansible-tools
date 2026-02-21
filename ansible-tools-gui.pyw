@@ -12,14 +12,31 @@ class AnsibleToolsGUI:
         self.root = root
         self.root.title("Ansible Tools")
         self.root.geometry("900x850")
+        self.config_file = os.path.expanduser('~/.ansible-tools-gui.json')
         
-        self.api_url = tk.StringVar(value=os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000'))
+        saved_server = self.load_config()
+        self.api_url = tk.StringVar(value=saved_server or os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000'))
+        self.api_url.trace_add('write', lambda *args: self.save_config())
         self.model = tk.StringVar(value='codellama:13b')
         self.service = tk.StringVar(value='generate')
         
         self.create_menu()
         self.create_menu()
         self.create_widgets()
+    
+    def load_config(self):
+        try:
+            with open(self.config_file, 'r') as f:
+                return json.load(f).get('api_url')
+        except:
+            return None
+    
+    def save_config(self):
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump({'api_url': self.api_url.get()}, f)
+        except:
+            pass
     
     def create_menu(self):
         menubar = tk.Menu(self.root)
