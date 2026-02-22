@@ -111,9 +111,14 @@ def split_and_process(commands, model, chunk_size=10):
 def index():
     return send_from_directory('/export/html', 'index.html')
 
+@app.route('/status')
+def status_page():
+    return send_from_directory('/export/html', 'status.html')
+
 @app.route('/queue-status')
 def queue_status():
     """Aggregate queue status from all backends"""
+    backends_info = []
     total_queue = 0
     active_count = 0
     
@@ -121,17 +126,32 @@ def queue_status():
         try:
             resp = requests.get(f"{backend}/queue-status", timeout=2)
             data = resp.json()
-            total_queue += data.get('queue_size', 0)
-            if data.get('active'):
+            queue_size = data.get('queue_size', 0)
+            total_queue += queue_size
+            is_active = data.get('active', False)
+            if is_active:
                 active_count += 1
+            
+            backends_info.append({
+                'url': backend,
+                'queue_size': queue_size,
+                'active': is_active,
+                'status': 'online'
+            })
         except:
-            pass
+            backends_info.append({
+                'url': backend,
+                'queue_size': 0,
+                'active': False,
+                'status': 'offline'
+            })
     
     return jsonify({
         'queue_size': total_queue,
         'active': active_count > 0,
         'active_backends': active_count,
-        'total_backends': len(BACKENDS)
+        'total_backends': len(BACKENDS),
+        'backends': backends_info
     })
 
 @app.route('/generate', methods=['POST'])

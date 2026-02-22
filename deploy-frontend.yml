@@ -71,6 +71,13 @@
         owner: "{{ app_user }}"
         mode: '0644'
 
+    - name: Copy status.html
+      copy:
+        src: status.html
+        dest: "{{ html_path }}/status.html"
+        owner: "{{ app_user }}"
+        mode: '0644'
+
     - name: Copy systemd service file (Linux)
       copy:
         src: ansible-ollama-frontend.service

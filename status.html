@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ansible Tools - Status</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            border-bottom: 2px solid #00ff00;
+            padding-bottom: 10px;
+        }
+        .summary {
+            background: #2b2b2b;
+            border: 2px solid #00ff00;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .summary-item {
+            display: inline-block;
+            margin: 10px 20px;
+            font-size: 18px;
+        }
+        .backends {
+            margin-top: 30px;
+        }
+        .backend {
+            background: #2b2b2b;
+            border: 2px solid #00ff00;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .backend.offline {
+            border-color: #ff0000;
+            color: #ff0000;
+        }
+        .backend-header {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .backend-info {
+            margin: 5px 0;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 3px;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+        .status-online {
+            background: #00ff00;
+            color: #000;
+        }
+        .status-offline {
+            background: #ff0000;
+            color: #fff;
+        }
+        .status-active {
+            background: #ffff00;
+            color: #000;
+        }
+        .refresh-info {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            opacity: 0.7;
+        }
+        a {
+            color: #00ff00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Ansible Tools - System Status</h1>
+        
+        <div class="summary">
+            <div class="summary-item">Total Queue: <span id="total-queue">-</span></div>
+            <div class="summary-item">Active Backends: <span id="active-backends">-</span> / <span id="total-backends">-</span></div>
+        </div>
+
+        <div class="backends">
+            <h2>Backend Servers</h2>
+            <div id="backend-list"></div>
+        </div>
+
+        <div class="refresh-info">
+            Auto-refreshing every 2 seconds | <a href="/">Back to Main</a>
+        </div>
+    </div>
+
+    <script>
+        function updateStatus() {
+            fetch('/queue-status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('total-queue').textContent = data.queue_size;
+                    document.getElementById('active-backends').textContent = data.active_backends;
+                    document.getElementById('total-backends').textContent = data.total_backends;
+
+                    const backendList = document.getElementById('backend-list');
+                    backendList.innerHTML = '';
+
+                    data.backends.forEach(backend => {
+                        const div = document.createElement('div');
+                        div.className = 'backend' + (backend.status === 'offline' ? ' offline' : '');
+                        
+                        let statusBadge = backend.status === 'online' ? 
+                            '<span class="status-badge status-online">ONLINE</span>' :
+                            '<span class="status-badge status-offline">OFFLINE</span>';
+                        
+                        let activeBadge = backend.active ? 
+                            '<span class="status-badge status-active">PROCESSING</span>' : '';
+
+                        div.innerHTML = `
+                            <div class="backend-header">
+                                ${backend.url}
+                                ${statusBadge}
+                                ${activeBadge}
+                            </div>
+                            <div class="backend-info">Queue Size: ${backend.queue_size}</div>
+                        `;
+                        backendList.appendChild(div);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                });
+        }
+
+        // Update immediately and then every 2 seconds
+        updateStatus();
+        setInterval(updateStatus, 2000);
+    </script>
+</body>
+</html>
