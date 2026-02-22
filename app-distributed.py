@@ -136,14 +136,16 @@ def queue_status():
                 'url': backend,
                 'queue_size': queue_size,
                 'active': is_active,
-                'status': 'online'
+                'status': 'online',
+                'active_model': data.get('active_model', 'none')
             })
         except:
             backends_info.append({
                 'url': backend,
                 'queue_size': 0,
                 'active': False,
-                'status': 'offline'
+                'status': 'offline',
+                'active_model': 'none'
             })
     
     return jsonify({
@@ -151,7 +153,8 @@ def queue_status():
         'active': active_count > 0,
         'active_backends': active_count,
         'total_backends': len(BACKENDS),
-        'backends': backends_info
+        'backends': backends_info,
+        'timestamp': time.time()
     })
 
 @app.route('/generate', methods=['POST'])

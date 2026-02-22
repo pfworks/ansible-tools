@@ -63,6 +63,7 @@
         src: backends.json
         dest: /usr/local/bin/backends.json
         mode: '0644'
+        force: no
 
     - name: Copy index.html
       copy:
