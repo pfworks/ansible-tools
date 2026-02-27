@@ -4,11 +4,34 @@ import ollama
 from queue import Queue
 from threading import Thread, Event
 import uuid
+import os
+import requests
 
 app = Flask(__name__)
 task_queue = Queue()
 active_task = None
 task_results = {}
+
+# Infisical configuration
+INFISICAL_TOKEN = os.environ.get('INFISICAL_TOKEN', '')
+INFISICAL_URL = os.environ.get('INFISICAL_URL', 'https://infisical.corp.ooma.com')
+
+def get_secret(key):
+    """Fetch secret from Infisical"""
+    if not INFISICAL_TOKEN:
+        return None
+    try:
+        resp = requests.get(
+            f"{INFISICAL_URL}/api/v3/secrets/raw/{key}",
+            headers={"Authorization": f"Bearer {INFISICAL_TOKEN}"}
+        )
+        return resp.json().get('secret', {}).get('secretValue')
+    except:
+        return None
+
+# Claude API configuration
+CLAUDE_API_KEY = get_secret('CLAUDE_API_KEY') or os.environ.get('CLAUDE_API_KEY', '')
+USE_CLAUDE_FALLBACK = os.environ.get('USE_CLAUDE_FALLBACK', 'true').lower() == 'true'
 
 def worker():
     global active_task
@@ -30,10 +53,65 @@ def worker():
         else:
             result = generate_playbook(task['commands'], model)
         
+        # Check if we should fallback to Claude
+        if USE_CLAUDE_FALLBACK and CLAUDE_API_KEY and should_use_claude(result):
+            result = fallback_to_claude(task, result)
+        
         task_results[task_id] = result
         task['event'].set()
         active_task = None
         task_queue.task_done()
+
+def should_use_claude(result):
+    """Determine if response quality is low"""
+    if result.get('error'):
+        return True
+    if result.get('playbook', '').strip() == '':
+        return True
+    if result.get('code', '').strip() == '':
+        return True
+    return False
+
+def fallback_to_claude(task, ollama_result):
+    """Call Claude API as fallback"""
+    import anthropic
+    
+    try:
+        client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+        task_type = task.get('type')
+        
+        if task_type == 'explain':
+            prompt = f"Explain this Ansible playbook:\n\n{task['playbook']}"
+        elif task_type == 'generate_code':
+            prompt = f"Generate code for: {task['description']}"
+        elif task_type == 'explain_code':
+            prompt = f"Explain this code:\n\n{task['code']}"
+        else:
+            prompt = f"Convert these shell commands into an Ansible playbook. Return ONLY valid YAML:\n\n{task['commands']}"
+        
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        content = message.content[0].text
+        
+        # Update result with Claude response
+        if task_type in ['explain', 'explain_code']:
+            ollama_result['explanation'] = content
+        elif task_type == 'generate_code':
+            ollama_result['code'] = content
+        else:
+            ollama_result['playbook'] = content
+        
+        ollama_result['error'] = None
+        ollama_result['claude_fallback'] = True
+        
+    except Exception as e:
+        ollama_result['claude_error'] = str(e)
+    
+    return ollama_result
 
 def generate_playbook(commands, model='codellama:13b'):
     import time
@@ -350,4 +428,9 @@ def explain_code_endpoint():
     return jsonify(result)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    import ssl
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain('/etc/ansible-tools/server-cert.pem', '/etc/ansible-tools/server-key.pem')
+    context.load_verify_locations('/etc/ansible-tools/ca-cert.pem')
+    context.verify_mode = ssl.CERT_REQUIRED
+    app.run(host='0.0.0.0', port=5000, ssl_context=context)

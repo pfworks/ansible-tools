@@ -1,0 +1,6 @@
+{
+  "backends": [
+    "https://backend1.example.com:5000",
+    "https://backend2.example.com:5000"
+  ]
+}

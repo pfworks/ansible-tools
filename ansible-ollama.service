@@ -4,7 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=rory
+Environment="INFISICAL_TOKEN="
+Environment="INFISICAL_URL=https://infisical.corp.ooma.com"
+Environment="USE_CLAUDE_FALLBACK=true"
 ExecStart=/export/ollama/bin/python3 /usr/local/bin/app.py
 Restart=always
 RestartSec=3

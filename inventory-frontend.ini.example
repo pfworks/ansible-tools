@@ -1,0 +1,4 @@
+[frontend]
+# Add your frontend server here
+# Example:
+# frontend.example.com ansible_user=root

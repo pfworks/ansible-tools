@@ -4,15 +4,30 @@ import sys
 import requests
 import json
 
-API_URL = os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000')
+API_URL = os.environ.get('ANSIBLE_TOOLS_API', 'https://localhost:5000')
 MODEL = os.environ.get('ANSIBLE_TOOLS_MODEL', 'codellama:13b')
+CERT_DIR = os.environ.get('ANSIBLE_TOOLS_CERT_DIR', os.path.expanduser('~/.ansible-tools'))
+
+def get_ssl_config():
+    """Get SSL certificate paths"""
+    ca_cert = os.path.join(CERT_DIR, 'ca-cert.pem')
+    client_cert = os.path.join(CERT_DIR, 'client-cert.pem')
+    client_key = os.path.join(CERT_DIR, 'client-key.pem')
+    
+    if os.path.exists(ca_cert) and os.path.exists(client_cert) and os.path.exists(client_key):
+        return {
+            'verify': ca_cert,
+            'cert': (client_cert, client_key)
+        }
+    return {}
 
 def print_help():
     print("""Ansible Tools CLI
 
 Environment Variables:
-  ANSIBLE_TOOLS_API    API endpoint (default: http://localhost:5000)
-  ANSIBLE_TOOLS_MODEL  Model to use (default: codellama:13b)
+  ANSIBLE_TOOLS_API        API endpoint (default: https://localhost:5000)
+  ANSIBLE_TOOLS_MODEL      Model to use (default: codellama:13b)
+  ANSIBLE_TOOLS_CERT_DIR   Certificate directory (default: ~/.ansible-tools)
 
 Commands:
   shell2ansible <file>     Convert shell commands to Ansible playbook
@@ -22,17 +37,24 @@ Commands:
   chat                     Interactive chat mode
 
 Examples:
-  export ANSIBLE_TOOLS_API=http://ansible.corp.ooma.com:5000
+  export ANSIBLE_TOOLS_API=https://ansible.corp.ooma.com:5000
   export ANSIBLE_TOOLS_MODEL=codellama:13b
   
   ansible-tools shell2ansible commands.txt > playbook.yml
   ansible-tools explain-ansible playbook.yml
   ansible-tools chat
+
+SSL Setup:
+  Place certificates in ~/.ansible-tools/:
+    - ca-cert.pem
+    - client-cert.pem
+    - client-key.pem
 """)
 
 def call_api(endpoint, data):
     try:
-        response = requests.post(f"{API_URL}{endpoint}", json=data)
+        ssl_config = get_ssl_config()
+        response = requests.post(f"{API_URL}{endpoint}", json=data, **ssl_config)
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -41,7 +63,8 @@ def call_api(endpoint, data):
 
 def check_queue():
     try:
-        response = requests.get(f"{API_URL}/queue-status")
+        ssl_config = get_ssl_config()
+        response = requests.get(f"{API_URL}/queue-status", **ssl_config)
         if response.status_code == 200:
             data = response.json()
             return data.get('queue_size', 0)

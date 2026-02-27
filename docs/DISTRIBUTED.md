@@ -3,106 +3,156 @@
 ## Architecture
 
 ```
-Client → app-distributed.py (port 5000) → Backend Farm
-                                          ├─ app.py (port 5001)
-                                          ├─ app.py (port 5002)
-                                          └─ app.py (port 5003)
+Client → app-distributed.py (Frontend) → Backend Farm (mTLS encrypted)
+                                         ├─ app.py (Backend 1)
+                                         ├─ app.py (Backend 2)
+                                         └─ app.py (Backend 3)
 ```
 
-## Setup
+The frontend load balances requests across backends using mutual TLS (mTLS) for encryption.
 
-### 1. Configure Backend Servers
+## Initial Setup
 
-Edit `app-distributed.py` and set your backend URLs:
-
-```python
-BACKENDS = [
-    'http://server1.local:5001',
-    'http://server2.local:5001',
-    'http://server3.local:5001',
-]
-```
-
-### 2. Start Backend Workers
-
-On each backend machine, run the original app.py on different ports:
+### 1. Create Configuration Files
 
 ```bash
-# Machine 1
-python3 app.py  # runs on port 5000
+# Copy example files
+cp inventory.ini.example inventory.ini
+cp inventory-frontend.ini.example inventory-frontend.ini
+cp backends.json.example backends.json
 
-# Machine 2
-PORT=5001 python3 app.py
+# Edit inventory.ini with your backend servers
+[servers]
+backend1.example.com ansible_user=root
+backend2.example.com ansible_user=root
 
-# Machine 3
-PORT=5002 python3 app.py
+# Edit inventory-frontend.ini with your frontend server
+[frontend]
+frontend.example.com ansible_user=root
+
+# Edit backends.json with backend URLs (must use https://)
+{
+  "backends": [
+    "https://backend1.example.com:5000",
+    "https://backend2.example.com:5000"
+  ]
+}
 ```
 
-Or modify app.py to use different ports.
-
-### 3. Start Load Balancer
+### 2. Generate SSL Certificates
 
 ```bash
-python3 app-distributed.py
+./generate-certs.sh
 ```
+
+This creates:
+- `certs/ca-cert.pem` - Certificate Authority
+- `certs/server-cert.pem` / `server-key.pem` - Server certificates
+- `certs/client-cert.pem` / `client-key.pem` - Client certificates
+
+### 3. Deploy Backend Servers
+
+```bash
+ansible-playbook -i inventory.ini deploy.yml
+```
+
+This installs:
+- Python environment
+- Ollama with models
+- Backend app with mTLS
+- Systemd service
+
+### 4. Deploy Frontend Server
+
+```bash
+ansible-playbook -i inventory-frontend.ini deploy-frontend.yml
+```
+
+This installs:
+- Python environment
+- Frontend app
+- Backend configuration
+- Systemd service
+
+### 5. Configure Infisical Token (Optional)
+
+For Claude API fallback, set the Infisical token on each backend:
+
+```bash
+ssh root@backend1.example.com
+systemctl edit ansible-ollama
+```
+
+Add:
+```
+[Service]
+Environment="INFISICAL_TOKEN=your-token-here"
+```
+
+Restart:
+```bash
+systemctl restart ansible-ollama
+```
+
+## Security
+
+### mTLS Encryption
+- All frontend-to-backend communication uses mutual TLS
+- Backends require valid client certificates
+- Self-signed CA for internal use
+
+### Certificate Management
+
+Generate user certificates for browser access:
+```bash
+./generate-user-cert.sh username
+```
+
+Revoke compromised certificates:
+```bash
+./revoke-cert.sh certs/username-cert.pem
+```
+
+### Secrets Management
+- API keys stored in Infisical
+- Only Infisical token in service files
+- No secrets in code or git
 
 ## Features
 
 ### Load Balancing
-- Automatically routes requests to available backends
+- Routes to backend with smallest queue
 - Tracks backend availability
-- Returns error if all backends busy
+- Automatic failover
 
-### Parallel Processing (Optional)
-Split large command sets across multiple backends:
-
-```bash
-curl -X POST http://localhost:5000/generate \
-  -H "Content-Type: application/json" \
-  -d '{"commands": "...", "model": "codellama:13b", "split": true}'
-```
-
-When `split: true`:
-- Commands split into chunks of 10 lines
-- Each chunk processed on different backend
-- Results combined and returned
-- Faster for large command sets
+### Claude API Fallback
+- Backends fallback to Claude if Ollama fails or produces low-quality output
+- Configured via environment variables
+- API key fetched from Infisical
 
 ### Queue Status
-Shows aggregate status across all backends:
-
 ```bash
-curl http://localhost:5000/queue-status
+curl http://frontend.example.com:5000/queue-status
 ```
 
-Returns:
-```json
-{
-  "queue_size": 5,
-  "active": true,
-  "active_backends": 2,
-  "total_backends": 3
-}
+Returns aggregate status across all backends.
+
+## Monitoring
+
+Status dashboard available at:
+```
+http://frontend.example.com:5000/status.html
 ```
 
-## Use Cases
-
-1. **High Availability**: Multiple backends handle failures
-2. **Parallel Processing**: Split large tasks across machines
-3. **Load Distribution**: Balance requests across GPU/CPU resources
-4. **Scaling**: Add more backends as needed
-
-## Configuration Options
-
-Edit `app-distributed.py`:
-
-- `BACKENDS`: List of backend URLs
-- `chunk_size=10`: Lines per chunk for split processing
-- `timeout=600`: Request timeout in seconds
+Shows:
+- Backend availability
+- Queue sizes
+- Active tasks
+- Real-time graphs
 
 ## Notes
 
-- Backends must run the original `app.py`
-- Each backend needs Ollama with models installed
-- Split mode works best for independent command sets
-- Not all tasks benefit from splitting (explanations don't split well)
+- Backends run on port 5000 with HTTPS
+- Frontend runs on port 5000 with HTTP (users) and HTTPS (backends)
+- All configuration files are in `.gitignore`
+- Certificates should be regenerated per environment

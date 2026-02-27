@@ -1,0 +1,5 @@
+[servers]
+# Add your backend servers here
+# Example:
+# backend1.example.com ansible_user=root
+# backend2.example.com ansible_user=root

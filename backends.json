@@ -1,6 +1,0 @@
-{
-  "backends": [
-    "http://backend1.corp.ooma.com:5000",
-    "http://backend2.corp.ooma.com:5000"
-  ]
-}

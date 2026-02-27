@@ -6,6 +6,7 @@ import urllib.parse
 import json
 import os
 import threading
+import ssl
 
 class AnsibleToolsGUI:
     def __init__(self, root):
@@ -13,9 +14,10 @@ class AnsibleToolsGUI:
         self.root.title("Ansible Tools")
         self.root.geometry("900x850")
         self.config_file = os.path.expanduser('~/.ansible-tools-gui.json')
+        self.cert_dir = os.path.expanduser('~/.ansible-tools')
         
         config = self.load_config()
-        self.api_url = tk.StringVar(value=config.get('api_url', os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000')))
+        self.api_url = tk.StringVar(value=config.get('api_url', os.environ.get('ANSIBLE_TOOLS_API', 'https://localhost:5000')))
         self.api_url.trace_add('write', lambda *args: self.save_config())
         self.model = tk.StringVar(value='codellama:13b')
         self.service = tk.StringVar(value='generate')
@@ -29,6 +31,18 @@ class AnsibleToolsGUI:
         if self.dark_mode.get():
             self.toggle_dark_mode()
         self.apply_font()
+    
+    def get_ssl_config(self):
+        """Get SSL certificate paths and create context"""
+        ca_cert = os.path.join(self.cert_dir, 'ca-cert.pem')
+        client_cert = os.path.join(self.cert_dir, 'client-cert.pem')
+        client_key = os.path.join(self.cert_dir, 'client-key.pem')
+        
+        if os.path.exists(ca_cert) and os.path.exists(client_cert) and os.path.exists(client_key):
+            context = ssl.create_default_context(cafile=ca_cert)
+            context.load_cert_chain(client_cert, client_key)
+            return context
+        return None
     
     def load_config(self):
         try:
@@ -303,8 +317,9 @@ GitHub: https://github.com/your-repo/ansible-tools
             # Check queue
             self.root.after(0, lambda: self.status_label.config(text="Checking queue..."))
             
+            ssl_context = self.get_ssl_config()
             req = urllib.request.Request(f"{api_url}/queue-status")
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, context=ssl_context) as response:
                 queue_data = json.loads(response.read().decode())
             
             if queue_data.get('queue_size', 0) > 0:
@@ -336,13 +351,14 @@ GitHub: https://github.com/your-repo/ansible-tools
                 output_key = 'explanation'
             
             json_data = json.dumps(data).encode('utf-8')
+            ssl_context = self.get_ssl_config()
             req = urllib.request.Request(
                 f"{api_url}{endpoint}",
                 data=json_data,
                 headers={'Content-Type': 'application/json'}
             )
             
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, context=ssl_context) as response:
                 result = json.loads(response.read().decode())
             
             if result.get('error'):

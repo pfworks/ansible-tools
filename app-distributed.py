@@ -28,7 +28,12 @@ backend_lock = Lock()
 def get_backend_queue_size(url):
     """Check backend queue size"""
     try:
-        resp = requests.get(f"{url}/queue-status", timeout=2)
+        resp = requests.get(
+            f"{url}/queue-status", 
+            timeout=2,
+            cert=('/etc/ansible-tools/client-cert.pem', '/etc/ansible-tools/client-key.pem'),
+            verify='/etc/ansible-tools/ca-cert.pem'
+        )
         return resp.json().get('queue_size', 999)
     except:
         return 999
@@ -64,7 +69,13 @@ def proxy_request(endpoint, data):
         return {'error': 'No backends available'}, 503
     
     try:
-        response = requests.post(f"{backend}{endpoint}", json=data, timeout=600)
+        response = requests.post(
+            f"{backend}{endpoint}", 
+            json=data, 
+            timeout=600,
+            cert=('/etc/ansible-tools/client-cert.pem', '/etc/ansible-tools/client-key.pem'),
+            verify='/etc/ansible-tools/ca-cert.pem'
+        )
         result = response.json()
         return result, response.status_code
     except Exception as e:
@@ -124,7 +135,12 @@ def queue_status():
     
     for backend in BACKENDS:
         try:
-            resp = requests.get(f"{backend}/queue-status", timeout=2)
+            resp = requests.get(
+                f"{backend}/queue-status", 
+                timeout=2,
+                cert=('/etc/ansible-tools/client-cert.pem', '/etc/ansible-tools/client-key.pem'),
+                verify='/etc/ansible-tools/ca-cert.pem'
+            )
             data = resp.json()
             queue_size = data.get('queue_size', 0)
             total_queue += queue_size
