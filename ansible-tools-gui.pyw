@@ -17,7 +17,7 @@ class AnsibleToolsGUI:
         self.cert_dir = os.path.expanduser('~/.ansible-tools')
         
         config = self.load_config()
-        self.api_url = tk.StringVar(value=config.get('api_url', os.environ.get('ANSIBLE_TOOLS_API', 'https://localhost:5000')))
+        self.api_url = tk.StringVar(value=config.get('api_url', os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000')))
         self.api_url.trace_add('write', lambda *args: self.save_config())
         self.model = tk.StringVar(value='codellama:13b')
         self.service = tk.StringVar(value='generate')

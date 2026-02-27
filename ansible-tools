@@ -4,7 +4,7 @@ import sys
 import requests
 import json
 
-API_URL = os.environ.get('ANSIBLE_TOOLS_API', 'https://localhost:5000')
+API_URL = os.environ.get('ANSIBLE_TOOLS_API', 'http://localhost:5000')
 MODEL = os.environ.get('ANSIBLE_TOOLS_MODEL', 'codellama:13b')
 CERT_DIR = os.environ.get('ANSIBLE_TOOLS_CERT_DIR', os.path.expanduser('~/.ansible-tools'))
 
@@ -25,7 +25,7 @@ def print_help():
     print("""Ansible Tools CLI
 
 Environment Variables:
-  ANSIBLE_TOOLS_API        API endpoint (default: https://localhost:5000)
+  ANSIBLE_TOOLS_API        API endpoint (default: http://localhost:5000)
   ANSIBLE_TOOLS_MODEL      Model to use (default: codellama:13b)
   ANSIBLE_TOOLS_CERT_DIR   Certificate directory (default: ~/.ansible-tools)
 
@@ -37,7 +37,7 @@ Commands:
   chat                     Interactive chat mode
 
 Examples:
-  export ANSIBLE_TOOLS_API=https://ansible.corp.ooma.com:5000
+  export ANSIBLE_TOOLS_API=http://ansible.corp.ooma.com:5000
   export ANSIBLE_TOOLS_MODEL=codellama:13b
   
   ansible-tools shell2ansible commands.txt > playbook.yml
