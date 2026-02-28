@@ -18,15 +18,27 @@ def load_backends():
             backends = json.load(f)['backends']
             # Support both old format (list of strings) and new format (list of dicts)
             if backends and isinstance(backends[0], str):
-                return [{'url': url, 'weight': 1} for url in backends]
+                return [{'url': url, 'weight': 1, 'max_model': 'codellama:70b'} for url in backends]
+            # Ensure max_model exists
+            for b in backends:
+                if 'max_model' not in b:
+                    b['max_model'] = 'codellama:70b'
             return backends
     except:
-        return [{'url': 'http://localhost:5001', 'weight': 1}]
+        return [{'url': 'http://localhost:5001', 'weight': 1, 'max_model': 'codellama:70b'}]
 
 BACKENDS = load_backends()
 
+# Model size ordering for comparison
+MODEL_SIZES = {
+    'codellama:7b': 1,
+    'codellama:13b': 2,
+    'codellama:34b': 3,
+    'codellama:70b': 4
+}
+
 # Track backend availability and queue size
-backend_status = {b['url']: {'available': True, 'queue_size': 0, 'weight': b['weight']} for b in BACKENDS}
+backend_status = {b['url']: {'available': True, 'queue_size': 0, 'weight': b['weight'], 'max_model': b['max_model']} for b in BACKENDS}
 backend_lock = Lock()
 
 def get_backend_queue_size(url):
@@ -40,8 +52,8 @@ def get_backend_queue_size(url):
     except:
         return 999
 
-def get_available_backend():
-    """Get backend with lowest weighted queue score"""
+def get_available_backend(requested_model='codellama:13b'):
+    """Get backend with lowest weighted queue score that supports the requested model"""
     with backend_lock:
         # Update queue sizes
         for backend in BACKENDS:
@@ -49,10 +61,16 @@ def get_available_backend():
             if backend_status[url]['available']:
                 backend_status[url]['queue_size'] = get_backend_queue_size(url)
         
-        # Find backend with lowest weighted score
-        # Score = queue_size - (weight * 0.1) to prefer higher weight when queues are equal
-        available = [(url, backend_status[url]['queue_size'] - (backend_status[url]['weight'] * 0.1)) 
-                     for url in backend_status.keys() if backend_status[url]['available']]
+        # Filter backends that support the requested model
+        requested_size = MODEL_SIZES.get(requested_model, 2)
+        available = []
+        for url in backend_status.keys():
+            if backend_status[url]['available']:
+                max_model = backend_status[url]['max_model']
+                max_size = MODEL_SIZES.get(max_model, 4)
+                if requested_size <= max_size:
+                    score = backend_status[url]['queue_size'] - (backend_status[url]['weight'] * 0.1)
+                    available.append((url, score))
         
         if not available:
             return None
@@ -68,9 +86,10 @@ def release_backend(url):
 
 def proxy_request(endpoint, data):
     """Send request to available backend"""
-    backend = get_available_backend()
+    model = data.get('model', 'codellama:13b')
+    backend = get_available_backend(model)
     if not backend:
-        return {'error': 'No backends available'}, 503
+        return {'error': f'No backends available that support {model}'}, 503
     
     try:
         response = requests.post(
@@ -138,6 +157,7 @@ def queue_status():
     for backend in BACKENDS:
         url = backend['url']
         weight = backend['weight']
+        max_model = backend.get('max_model', 'codellama:70b')
         try:
             resp = requests.get(
                 f"{url}/queue-status", 
@@ -153,6 +173,7 @@ def queue_status():
             backends_info.append({
                 'url': url,
                 'weight': weight,
+                'max_model': max_model,
                 'queue_size': queue_size,
                 'active': is_active,
                 'status': 'online',
@@ -162,6 +183,7 @@ def queue_status():
             backends_info.append({
                 'url': url,
                 'weight': weight,
+                'max_model': max_model,
                 'queue_size': 0,
                 'active': False,
                 'status': 'offline',
