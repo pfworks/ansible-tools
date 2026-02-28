@@ -15,14 +15,18 @@ def load_backends():
     config_file = os.path.join(os.path.dirname(__file__), 'backends.json')
     try:
         with open(config_file, 'r') as f:
-            return json.load(f)['backends']
+            backends = json.load(f)['backends']
+            # Support both old format (list of strings) and new format (list of dicts)
+            if backends and isinstance(backends[0], str):
+                return [{'url': url, 'weight': 1} for url in backends]
+            return backends
     except:
-        return ['http://localhost:5001']
+        return [{'url': 'http://localhost:5001', 'weight': 1}]
 
 BACKENDS = load_backends()
 
 # Track backend availability and queue size
-backend_status = {url: {'available': True, 'queue_size': 0} for url in BACKENDS}
+backend_status = {b['url']: {'available': True, 'queue_size': 0, 'weight': b['weight']} for b in BACKENDS}
 backend_lock = Lock()
 
 def get_backend_queue_size(url):
@@ -30,25 +34,25 @@ def get_backend_queue_size(url):
     try:
         resp = requests.get(
             f"{url}/queue-status", 
-            timeout=2,
-            cert=('/etc/ansible-tools/client-cert.pem', '/etc/ansible-tools/client-key.pem'),
-            verify='/etc/ansible-tools/ca-cert.pem'
+            timeout=2
         )
         return resp.json().get('queue_size', 999)
     except:
         return 999
 
 def get_available_backend():
-    """Get backend with lowest queue"""
+    """Get backend with lowest weighted queue score"""
     with backend_lock:
         # Update queue sizes
-        for url in BACKENDS:
+        for backend in BACKENDS:
+            url = backend['url']
             if backend_status[url]['available']:
                 backend_status[url]['queue_size'] = get_backend_queue_size(url)
         
-        # Find backend with lowest queue
-        available = [(url, backend_status[url]['queue_size']) 
-                     for url in BACKENDS if backend_status[url]['available']]
+        # Find backend with lowest weighted score
+        # Score = queue_size - (weight * 0.1) to prefer higher weight when queues are equal
+        available = [(url, backend_status[url]['queue_size'] - (backend_status[url]['weight'] * 0.1)) 
+                     for url in backend_status.keys() if backend_status[url]['available']]
         
         if not available:
             return None
@@ -72,9 +76,7 @@ def proxy_request(endpoint, data):
         response = requests.post(
             f"{backend}{endpoint}", 
             json=data, 
-            timeout=600,
-            cert=('/etc/ansible-tools/client-cert.pem', '/etc/ansible-tools/client-key.pem'),
-            verify='/etc/ansible-tools/ca-cert.pem'
+            timeout=600
         )
         result = response.json()
         return result, response.status_code
@@ -134,12 +136,12 @@ def queue_status():
     active_count = 0
     
     for backend in BACKENDS:
+        url = backend['url']
+        weight = backend['weight']
         try:
             resp = requests.get(
-                f"{backend}/queue-status", 
-                timeout=2,
-                cert=('/etc/ansible-tools/client-cert.pem', '/etc/ansible-tools/client-key.pem'),
-                verify='/etc/ansible-tools/ca-cert.pem'
+                f"{url}/queue-status", 
+                timeout=2
             )
             data = resp.json()
             queue_size = data.get('queue_size', 0)
@@ -149,7 +151,8 @@ def queue_status():
                 active_count += 1
             
             backends_info.append({
-                'url': backend,
+                'url': url,
+                'weight': weight,
                 'queue_size': queue_size,
                 'active': is_active,
                 'status': 'online',
@@ -157,7 +160,8 @@ def queue_status():
             })
         except:
             backends_info.append({
-                'url': backend,
+                'url': url,
+                'weight': weight,
                 'queue_size': 0,
                 'active': False,
                 'status': 'offline',

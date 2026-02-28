@@ -1,6 +1,6 @@
 {
   "backends": [
-    "https://backend1.example.com:5000",
-    "https://backend2.example.com:5000"
+    {"url": "http://backend1.example.com:5000", "weight": 1},
+    {"url": "http://backend2.example.com:5000", "weight": 1}
   ]
 }

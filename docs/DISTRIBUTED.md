@@ -3,13 +3,13 @@
 ## Architecture
 
 ```
-Client → app-distributed.py (Frontend) → Backend Farm (mTLS encrypted)
+Client → app-distributed.py (Frontend) → Backend Farm
                                          ├─ app.py (Backend 1)
                                          ├─ app.py (Backend 2)
                                          └─ app.py (Backend 3)
 ```
 
-The frontend load balances requests across backends using mutual TLS (mTLS) for encryption.
+The frontend load balances requests across backends with weighted priority.
 
 ## Initial Setup
 
@@ -30,27 +30,18 @@ backend2.example.com ansible_user=root
 [frontend]
 frontend.example.com ansible_user=root
 
-# Edit backends.json with backend URLs (must use https://)
+# Edit backends.json with backend URLs and weights
 {
   "backends": [
-    "https://backend1.example.com:5000",
-    "https://backend2.example.com:5000"
+    {"url": "http://backend1.example.com:5000", "weight": 1},
+    {"url": "http://backend2.example.com:5000", "weight": 10}
   ]
 }
 ```
 
-### 2. Generate SSL Certificates
+Higher weight = higher priority. Backend with weight 10 will be preferred 10x over weight 1.
 
-```bash
-./generate-certs.sh
-```
-
-This creates:
-- `certs/ca-cert.pem` - Certificate Authority
-- `certs/server-cert.pem` / `server-key.pem` - Server certificates
-- `certs/client-cert.pem` / `client-key.pem` - Client certificates
-
-### 3. Deploy Backend Servers
+### 2. Deploy Backend Servers
 
 ```bash
 ansible-playbook -i inventory.ini deploy.yml
@@ -59,10 +50,10 @@ ansible-playbook -i inventory.ini deploy.yml
 This installs:
 - Python environment
 - Ollama with models
-- Backend app with mTLS
+- Backend app
 - Systemd service
 
-### 4. Deploy Frontend Server
+### 3. Deploy Frontend Server
 
 ```bash
 ansible-playbook -i inventory-frontend.ini deploy-frontend.yml
@@ -74,7 +65,7 @@ This installs:
 - Backend configuration
 - Systemd service
 
-### 5. Configure Infisical Token (Optional)
+### 4. Configure Infisical Token (Optional)
 
 For Claude API fallback, set the Infisical token on each backend:
 
@@ -94,34 +85,12 @@ Restart:
 systemctl restart ansible-ollama
 ```
 
-## Security
-
-### mTLS Encryption
-- All frontend-to-backend communication uses mutual TLS
-- Backends require valid client certificates
-- Self-signed CA for internal use
-
-### Certificate Management
-
-Generate user certificates for browser access:
-```bash
-./generate-user-cert.sh username
-```
-
-Revoke compromised certificates:
-```bash
-./revoke-cert.sh certs/username-cert.pem
-```
-
-### Secrets Management
-- API keys stored in Infisical
-- Only Infisical token in service files
-- No secrets in code or git
-
 ## Features
 
-### Load Balancing
-- Routes to backend with smallest queue
+### Weighted Load Balancing
+- Routes to backend with best weighted score
+- Score = queue_size - (weight * 0.1)
+- Higher weight backends preferred when queues equal
 - Tracks backend availability
 - Automatic failover
 
@@ -135,7 +104,7 @@ Revoke compromised certificates:
 curl http://frontend.example.com:5000/queue-status
 ```
 
-Returns aggregate status across all backends.
+Returns aggregate status across all backends including weights.
 
 ## Monitoring
 
@@ -147,12 +116,14 @@ http://frontend.example.com:5000/status.html
 Shows:
 - Backend availability
 - Queue sizes
+- Backend weights
 - Active tasks
 - Real-time graphs
 
 ## Notes
 
-- Backends run on port 5000 with HTTPS
-- Frontend runs on port 5000 with HTTP (users) and HTTPS (backends)
+- All services run on port 5000 with HTTP
+- Frontend accepts HTTP from users
+- Frontend to backend communication is HTTP
 - All configuration files are in `.gitignore`
-- Certificates should be regenerated per environment
+- Weights can be adjusted in `backends.json` and service restarted

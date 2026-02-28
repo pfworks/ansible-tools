@@ -428,9 +428,4 @@ def explain_code_endpoint():
     return jsonify(result)
 
 if __name__ == '__main__':
-    import ssl
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain('/etc/ansible-tools/server-cert.pem', '/etc/ansible-tools/server-key.pem')
-    context.load_verify_locations('/etc/ansible-tools/ca-cert.pem')
-    context.verify_mode = ssl.CERT_REQUIRED
-    app.run(host='0.0.0.0', port=5000, ssl_context=context)
+    app.run(host='0.0.0.0', port=5000)
