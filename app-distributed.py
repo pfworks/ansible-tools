@@ -211,6 +211,13 @@ def explain_code_endpoint():
     result, status = proxy_request('/explain-code', {'code': code, 'model': model})
     return jsonify(result), status
 
+@app.route('/chat', methods=['POST'])
+def chat_endpoint():
+    message = request.json.get('message', '')
+    model = request.json.get('model', 'codellama:13b')
+    result, status = proxy_request('/chat', {'message': message, 'model': model})
+    return jsonify(result), status
+
 @app.route('/upload', methods=['POST'])
 def upload():
     if 'file' not in request.files:

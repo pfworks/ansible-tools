@@ -61,6 +61,10 @@
                 <input type="radio" name="service" value="explainCode" onchange="switchService()"> 
                 Code → Explanation
             </label>
+            <label style="margin-left: 20px;">
+                <input type="radio" name="service" value="chat" onchange="switchService()"> 
+                Chat
+            </label>
         </div>
 
         <div id="generateService">
@@ -155,6 +159,27 @@
                 </div>
             </div>
         </div>
+
+        <div id="chatService" style="display: none;">
+            <div class="section">
+                <h3>Your Message</h3>
+                <textarea id="chatInput" placeholder="Ask any question..."></textarea>
+                <div class="buttons">
+                    <button class="primary" onclick="chat()">Send</button>
+                    <button class="secondary" onclick="clearAll()">Clear</button>
+                </div>
+            </div>
+
+            <div id="statusChat"></div>
+
+            <div class="section">
+                <h3>Response</h3>
+                <textarea id="chatResponse" readonly placeholder="Response will appear here..."></textarea>
+                <div class="buttons">
+                    <button class="secondary" onclick="copyToClipboard('chatResponse')">Copy</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -208,6 +233,7 @@
             document.getElementById('explainService').style.display = service === 'explain' ? 'block' : 'none';
             document.getElementById('generateCodeService').style.display = service === 'generateCode' ? 'block' : 'none';
             document.getElementById('explainCodeService').style.display = service === 'explainCode' ? 'block' : 'none';
+            document.getElementById('chatService').style.display = service === 'chat' ? 'block' : 'none';
         }
 
         function showStatus(message, type, statusId = 'status') {
@@ -389,6 +415,46 @@
                 showStatus(statusMsg, 'success', 'statusCodeExplain');
             } catch (error) {
                 showStatus('Error explaining code: ' + error.message, 'error', 'statusCodeExplain');
+            }
+        }
+
+        async function chat() {
+            const message = document.getElementById('chatInput').value;
+            if (!message.trim()) {
+                showStatus('Please enter a message', 'error', 'statusChat');
+                return;
+            }
+
+            // Check queue position
+            try {
+                const queueResp = await fetch('/queue-status');
+                const queueData = await queueResp.json();
+                if (queueData.queue_size > 0) {
+                    showStatus(`Queue position: #${queueData.queue_size + 1} - Processing`, 'loading', 'statusChat');
+                } else {
+                    showStatus('Processing', 'loading', 'statusChat');
+                }
+            } catch {
+                showStatus('Processing', 'loading', 'statusChat');
+            }
+            
+            try {
+                const model = document.getElementById('modelSelect').value;
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message, model })
+                });
+                
+                const data = await response.json();
+                document.getElementById('chatResponse').value = data.response;
+                let statusMsg = `Responded in ${data.elapsed}s | Tokens: ${data.total_tokens}`;
+                if (data.queue_position) {
+                    statusMsg += ` | Was #${data.queue_position} in queue`;
+                }
+                showStatus(statusMsg, 'success', 'statusChat');
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error', 'statusChat');
             }
         }
 

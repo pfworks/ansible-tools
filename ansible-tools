@@ -34,7 +34,8 @@ Commands:
   explain-ansible <file>   Explain an Ansible playbook
   generate-code <file>     Generate code from description
   explain-code <file>      Explain code
-  chat                     Interactive chat mode
+  chat                     Interactive chat mode (general questions)
+  interactive              Interactive mode (Ansible tools)
 
 Examples:
   export ANSIBLE_TOOLS_API=http://ansible.corp.ooma.com:5000
@@ -158,6 +159,41 @@ def explain_code(file_path):
 
 def chat():
     print(f"Ansible Tools Chat (Model: {MODEL})")
+    print("Type your questions. Type 'quit' to exit.")
+    print()
+    
+    while True:
+        try:
+            message = input("You: ").strip()
+            
+            if message.lower() == 'quit':
+                break
+            
+            if not message:
+                continue
+            
+            queue_size = check_queue()
+            if queue_size > 0:
+                print(f"Queue position: #{queue_size + 1}")
+            
+            result = call_api('/chat', {'message': message, 'model': MODEL})
+            
+            if result.get('error'):
+                print(f"Error: {result['error']}")
+            else:
+                print(f"\nAssistant: {result['response']}")
+                status = f"[{result['elapsed']}s | {result['total_tokens']} tokens]"
+                print(status)
+            print()
+            
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
+        except EOFError:
+            break
+
+def interactive():
+    print(f"Ansible Tools Chat (Model: {MODEL})")
     print("Commands: shell2ansible, explain-ansible, generate-code, explain-code, quit")
     print()
     
@@ -237,6 +273,8 @@ if __name__ == '__main__':
         explain_code(sys.argv[2])
     elif command == 'chat':
         chat()
+    elif command == 'interactive':
+        interactive()
     else:
         print_help()
         sys.exit(1)

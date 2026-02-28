@@ -221,6 +221,8 @@ GitHub: https://github.com/your-repo/ansible-tools
                        value='generate-code', command=self.switch_service).pack(side=tk.LEFT, padx=10)
         ttk.Radiobutton(service_frame, text="Code → Explanation", variable=self.service,
                        value='explain-code', command=self.switch_service).pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(service_frame, text="Chat", variable=self.service,
+                       value='chat', command=self.switch_service).pack(side=tk.LEFT, padx=10)
         
         # Input frame
         input_frame = ttk.LabelFrame(self.root, text="Input", padding="10")
@@ -275,6 +277,11 @@ GitHub: https://github.com/your-repo/ansible-tools
             self.output_text.delete(1.0, tk.END)
             self.root.children['!labelframe'].config(text="Code")
             self.root.children['!labelframe2'].config(text="Explanation")
+        elif service == 'chat':
+            self.input_text.delete(1.0, tk.END)
+            self.output_text.delete(1.0, tk.END)
+            self.root.children['!labelframe'].config(text="Your Message")
+            self.root.children['!labelframe2'].config(text="Response")
     
     def upload_file(self):
         filename = filedialog.askopenfilename(
@@ -345,6 +352,10 @@ GitHub: https://github.com/your-repo/ansible-tools
                 endpoint = '/generate-code'
                 data = {'description': input_content, 'model': model}
                 output_key = 'code'
+            elif service == 'chat':
+                endpoint = '/chat'
+                data = {'message': input_content, 'model': model}
+                output_key = 'response'
             else:  # explain-code
                 endpoint = '/explain-code'
                 data = {'code': input_content, 'model': model}
