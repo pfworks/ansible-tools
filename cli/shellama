@@ -406,13 +406,21 @@ SERVICES = {
 
 # Cloud provider pricing per 1M tokens (input/output)
 CLOUD_PRICING = {
+    'Claude 4 Sonnet':    {'input': 3.00,  'output': 15.00},
+    'Claude 4 Haiku':     {'input': 0.80,  'output': 4.00},
     'Claude 3.5 Sonnet':  {'input': 3.00,  'output': 15.00},
-    'Claude 3.5 Haiku':   {'input': 0.80,  'output': 4.00},
     'GPT-4o':             {'input': 2.50,  'output': 10.00},
     'GPT-4o mini':        {'input': 0.15,  'output': 0.60},
-    'Gemini 1.5 Pro':     {'input': 1.25,  'output': 5.00},
-    'Gemini 1.5 Flash':   {'input': 0.075, 'output': 0.30},
+    'OpenAI o3':          {'input': 10.00, 'output': 40.00},
+    'OpenAI o4-mini':     {'input': 1.10,  'output': 4.40},
+    'Azure GPT-4o':       {'input': 2.50,  'output': 10.00},
+    'Gemini 2.5 Pro':     {'input': 1.25,  'output': 10.00},
+    'Gemini 2.5 Flash':   {'input': 0.15,  'output': 0.60},
+    'Grok 3':             {'input': 3.00,  'output': 15.00},
+    'Grok 3 mini':        {'input': 0.30,  'output': 0.50},
     'Llama 3 70B':        {'input': 0.59,  'output': 0.79},
+    'Amazon Nova Pro':    {'input': 0.80,  'output': 3.20},
+    'Amazon Nova Lite':   {'input': 0.06,  'output': 0.24},
 }
 
 TEST_PROMPT = "Write a Python function that reads a CSV file and returns the top 5 rows sorted by a given column name. Include error handling and type hints."
