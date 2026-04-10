@@ -401,7 +401,125 @@ SERVICES = {
     'analyze':  ('Analyze files/directories',),
     'img':      ('Generate image from text prompt',),
     'chat':     ('Chat with AI (default)',),
+    'test':     ('Benchmark models — compare speed, tokens, and cost',),
 }
+
+# Cloud provider pricing per 1M tokens (input/output)
+CLOUD_PRICING = {
+    'Claude 3.5 Sonnet':  {'input': 3.00,  'output': 15.00},
+    'Claude 3.5 Haiku':   {'input': 0.80,  'output': 4.00},
+    'GPT-4o':             {'input': 2.50,  'output': 10.00},
+    'GPT-4o mini':        {'input': 0.15,  'output': 0.60},
+    'Gemini 1.5 Pro':     {'input': 1.25,  'output': 5.00},
+    'Gemini 1.5 Flash':   {'input': 0.075, 'output': 0.30},
+    'Llama 3 70B':        {'input': 0.59,  'output': 0.79},
+}
+
+TEST_PROMPT = "Write a Python function that reads a CSV file and returns the top 5 rows sorted by a given column name. Include error handling and type hints."
+
+
+def ai_test(model_arg=None):
+    """Benchmark: run a standard prompt across models, compare tokens/speed/cost."""
+    global session_tokens, session_requests, session_elapsed
+
+    # Get available models
+    try:
+        resp = requests.get(f"{API_URL}/models", timeout=10)
+        models = [m['name'] for m in resp.json().get('models', [])]
+    except Exception as e:
+        print(f"shellama: {e}", file=sys.stderr)
+        return
+    if not models:
+        print("shellama: no models available", file=sys.stderr)
+        return
+
+    # Pick model(s) to test
+    if model_arg and model_arg != 'all':
+        test_models = [m for m in models if model_arg in m]
+        if not test_models:
+            print(f"shellama: no model matching '{model_arg}'", file=sys.stderr)
+            return
+    elif model_arg == 'all':
+        test_models = models
+    else:
+        # Prompt user to choose
+        print(f"{CYAN}Available models:{RESET}")
+        for i, m in enumerate(models):
+            current = " ← current" if m == MODEL else ""
+            print(f"  {YELLOW}{i+1}{RESET}) {m}{current}")
+        print(f"  {YELLOW}a{RESET}) all models")
+        try:
+            choice = input(f"{GRAY}Select [1-{len(models)}/a]: {RESET}").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if choice == 'a':
+            test_models = models
+        elif choice.isdigit() and 1 <= int(choice) <= len(models):
+            test_models = [models[int(choice)-1]]
+        else:
+            print("cancelled")
+            return
+
+    print(f"\n{CYAN}Benchmark: \"{TEST_PROMPT[:70]}...\"{RESET}\n")
+
+    results = []
+    for m in test_models:
+        print(f"{GRAY}Testing {m}...{RESET}", end='', flush=True)
+        try:
+            r = requests.post(
+                f"{API_URL}/chat",
+                json={'message': TEST_PROMPT, 'model': m},
+                timeout=3600
+            )
+            data = r.json()
+            if data.get('error'):
+                print(f" error: {data['error']}")
+                continue
+            prompt_tok = data.get('prompt_tokens', 0)
+            resp_tok = data.get('response_tokens', 0)
+            total_tok = data.get('total_tokens', 0)
+            elapsed = data.get('elapsed', 0)
+            tok_per_sec = resp_tok / elapsed if elapsed > 0 else 0
+            session_tokens += total_tok
+            session_requests += 1
+            session_elapsed += elapsed
+            results.append({
+                'model': m, 'prompt_tokens': prompt_tok, 'response_tokens': resp_tok,
+                'total_tokens': total_tok, 'elapsed': elapsed, 'tok_per_sec': tok_per_sec,
+            })
+            print(f" {elapsed:.1f}s | {total_tok} tokens | {tok_per_sec:.1f} tok/s")
+        except KeyboardInterrupt:
+            print(f"\n{GRAY}cancelled{RESET}")
+            try:
+                requests.post(f"{API_URL}/stop-all", timeout=5)
+            except Exception:
+                pass
+            break
+        except Exception as e:
+            print(f" error: {e}")
+
+    if not results:
+        return
+
+    # Print comparison table
+    print(f"\n{CYAN}{'Model':<30} {'Time':>7} {'Prompt':>7} {'Reply':>7} {'Total':>7} {'tok/s':>7}{RESET}")
+    print(f"{GRAY}{'─'*30} {'─'*7} {'─'*7} {'─'*7} {'─'*7} {'─'*7}{RESET}")
+    for r in sorted(results, key=lambda x: x['elapsed']):
+        print(f"{r['model']:<30} {r['elapsed']:>6.1f}s {r['prompt_tokens']:>7} {r['response_tokens']:>7} {r['total_tokens']:>7} {r['tok_per_sec']:>6.1f}")
+
+    # Cloud cost estimates using average token counts from results
+    avg_prompt = sum(r['prompt_tokens'] for r in results) // len(results)
+    avg_resp = sum(r['response_tokens'] for r in results) // len(results)
+    print(f"\n{CYAN}Cloud cost estimate for this request (~{avg_prompt} in / ~{avg_resp} out tokens):{RESET}")
+    print(f"{GRAY}{'Provider':<25} {'Input':>10} {'Output':>10} {'Total':>10}{RESET}")
+    print(f"{GRAY}{'─'*25} {'─'*10} {'─'*10} {'─'*10}{RESET}")
+    for name, price in CLOUD_PRICING.items():
+        cost_in = avg_prompt * price['input'] / 1_000_000
+        cost_out = avg_resp * price['output'] / 1_000_000
+        cost_total = cost_in + cost_out
+        print(f"{name:<25} ${cost_in:>8.6f} ${cost_out:>8.6f} ${cost_total:>8.6f}")
+    print(f"\n{GRAY}Local models: $0.00 (your electricity only){RESET}")
 
 
 def show_services():
@@ -414,6 +532,7 @@ def show_services():
         print(f"  {YELLOW},{name}{RESET} {arg} - {desc}")
     print(f"  {YELLOW},,{RESET} <prompt> - quiet chat (output only)")
     print(f"  {YELLOW},models{RESET} - list and select model")
+    print(f"  {YELLOW},test{RESET}   - benchmark models (speed, tokens, cost)")
     print(f"  {YELLOW},quiet{RESET}  - toggle quiet mode")
     print(f"  {YELLOW},tokens{RESET} - show session token usage")
 
@@ -486,8 +605,8 @@ def main():
     print(f"  {YELLOW},{RESET}  <prompt>       agentic chat        {YELLOW},,{RESET} <prompt>       quiet chat")
     print(f"  {YELLOW},explain{RESET}  <file>  explain any file     {YELLOW},generate{RESET} <desc>  generate code")
     print(f"  {YELLOW},analyze{RESET}  <path>  analyze files/dirs   {YELLOW},img{RESET} <prompt>     generate image")
+    print(f"  {YELLOW},test{RESET}             benchmark models     {YELLOW},models{RESET}           select model")
     print(f"  {YELLOW},list{RESET}             all services         {YELLOW},quiet{RESET}            toggle quiet")
-    print(f"  {YELLOW},models{RESET}           select model         {YELLOW},tokens{RESET}           session usage")
     print()
 
     while True:
@@ -537,6 +656,8 @@ def main():
                 print(f"quiet mode: {'on' if quiet else 'off'}")
             elif query == 'tokens':
                 print(f"{CYAN}Session usage: {session_requests} requests | {session_tokens} tokens | {session_elapsed:.1f}s{RESET}")
+            elif query == 'test' or query.startswith('test '):
+                ai_test(query[5:].strip() or None)
             elif query.startswith('img '):
                 ai_image(query[4:].strip())
             elif query.startswith('analyze '):
