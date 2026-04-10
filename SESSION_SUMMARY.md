@@ -129,6 +129,7 @@ Clients → app-distributed.py (Frontend :5000) → Backend Farm
 | `,analyze <paths>` | `/analyze` | Files and/or directories, recursive |
 | `,img <prompt>` | `/generate-image` | Text-to-image (Stable Diffusion) |
 | `,models` | `/models` | List and select model |
+| `,test [model\|all] [--prompt "..."]` | `/chat` | Benchmark models — speed, tokens, cloud cost estimate |
 | `,tokens` | — | Show session usage stats (CLI only) |
 | `,quiet` | — | Toggle quiet mode (CLI only) |
 | `,stop` | `/stop-all` | Stop backend processing (GUI only) |
@@ -213,6 +214,16 @@ See `docs/cloud-fallback-setup.md` for full guide.
 | `OPENROUTER_MODEL` | `anthropic/claude-3.5-sonnet` | Cloud fallback model (backends) |
 | `OPENROUTER_URL` | `https://openrouter.ai/api/v1/chat/completions` | Cloud fallback endpoint (backends, change for LiteLLM) |
 | `USE_CLOUD_FALLBACK` | `false` | Enable cloud fallback (backends) |
+
+## Benchmarking (`,test`)
+
+Sends a standard prompt (or custom `--prompt`) to one or more models via `/chat`, collects `elapsed`, `prompt_tokens`, `response_tokens`, `total_tokens`, computes `tok/s`.
+
+- Fetches model list from `/models`, backend capacity from `/queue-status`
+- Extracts numeric size from model names (e.g. `qwen2.5-coder:14b` → 14) and compares against `max_model` from online backends
+- Models too large are skipped in "all" mode, shown as "(too large)" in interactive picker
+- After results, prints cloud cost estimate table using per-1M-token pricing for Claude 3.5 Sonnet, Claude 3.5 Haiku, GPT-4o, GPT-4o mini, Gemini 1.5 Pro, Gemini 1.5 Flash, Llama 3 70B
+- Pricing constants are in `CLOUD_PRICING` dict in `cli/shellama`
 
 ## Key Design Decisions
 

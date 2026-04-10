@@ -418,9 +418,20 @@ CLOUD_PRICING = {
 TEST_PROMPT = "Write a Python function that reads a CSV file and returns the top 5 rows sorted by a given column name. Include error handling and type hints."
 
 
-def ai_test(model_arg=None):
+def ai_test(args=None):
     """Benchmark: run a standard prompt across models, compare tokens/speed/cost."""
     global session_tokens, session_requests, session_elapsed
+
+    # Parse args: ,test [model] [--prompt "..."]
+    model_arg = None
+    prompt = TEST_PROMPT
+    if args:
+        if '--prompt ' in args:
+            parts = args.split('--prompt ', 1)
+            model_arg = parts[0].strip() or None
+            prompt = parts[1].strip().strip('"').strip("'")
+        else:
+            model_arg = args
 
     # Get available models
     try:
@@ -433,6 +444,26 @@ def ai_test(model_arg=None):
         print("shellama: no models available", file=sys.stderr)
         return
 
+    # Get backend max_model info to filter out models we can't actually run
+    runnable = set(models)
+    try:
+        qs = requests.get(f"{API_URL}/queue-status", timeout=10).json()
+        backends = qs.get('backends', [])
+        if backends:
+            # Build set of max sizes available
+            max_sizes = [b.get('max_model', '') for b in backends if b.get('status') == 'online']
+            if max_sizes:
+                # Only keep models whose size <= at least one backend's max_model
+                def model_size(name):
+                    """Extract numeric size from model name like qwen2.5-coder:14b -> 14"""
+                    import re
+                    m = re.search(r':(\d+\.?\d*)b', name)
+                    return float(m.group(1)) if m else 0
+                max_available = max(model_size(m) for m in max_sizes) if max_sizes else 999
+                runnable = {m for m in models if model_size(m) <= max_available}
+    except Exception:
+        pass
+
     # Pick model(s) to test
     if model_arg and model_arg != 'all':
         test_models = [m for m in models if model_arg in m]
@@ -440,28 +471,33 @@ def ai_test(model_arg=None):
             print(f"shellama: no model matching '{model_arg}'", file=sys.stderr)
             return
     elif model_arg == 'all':
-        test_models = models
+        test_models = [m for m in models if m in runnable]
+        skipped = [m for m in models if m not in runnable]
+        if skipped:
+            print(f"{GRAY}Skipping (too large for backends): {', '.join(skipped)}{RESET}")
     else:
         # Prompt user to choose
         print(f"{CYAN}Available models:{RESET}")
         for i, m in enumerate(models):
             current = " ← current" if m == MODEL else ""
-            print(f"  {YELLOW}{i+1}{RESET}) {m}{current}")
-        print(f"  {YELLOW}a{RESET}) all models")
+            flag = f" {GRAY}(too large){RESET}" if m not in runnable else ""
+            print(f"  {YELLOW}{i+1}{RESET}) {m}{current}{flag}")
+        print(f"  {YELLOW}a{RESET}) all runnable models")
         try:
             choice = input(f"{GRAY}Select [1-{len(models)}/a]: {RESET}").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             return
         if choice == 'a':
-            test_models = models
+            test_models = [m for m in models if m in runnable]
         elif choice.isdigit() and 1 <= int(choice) <= len(models):
             test_models = [models[int(choice)-1]]
         else:
             print("cancelled")
             return
 
-    print(f"\n{CYAN}Benchmark: \"{TEST_PROMPT[:70]}...\"{RESET}\n")
+    display = prompt[:70] + '...' if len(prompt) > 70 else prompt
+    print(f"\n{CYAN}Benchmark: \"{display}\"{RESET}\n")
 
     results = []
     for m in test_models:
@@ -469,7 +505,7 @@ def ai_test(model_arg=None):
         try:
             r = requests.post(
                 f"{API_URL}/chat",
-                json={'message': TEST_PROMPT, 'model': m},
+                json={'message': prompt, 'model': m},
                 timeout=3600
             )
             data = r.json()

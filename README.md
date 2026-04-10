@@ -137,6 +137,7 @@ The CLI is a full bash shell with AI integration. Regular commands run in bash. 
 | `,analyze <paths>` | Analyze files and/or directories recursively |
 | `,img <prompt>` | Generate image (Stable Diffusion) |
 | `,models` | List and select model |
+| `,test [model\|all] [--prompt "..."]` | Benchmark models — compare speed, tokens, cloud cost |
 | `,tokens` | Show session usage stats |
 | `,quiet` | Toggle quiet mode |
 | `,list` / `,help` | Show available commands |
@@ -227,6 +228,19 @@ curl -X POST http://server:5000/upload \
 curl -X POST http://server:5000/generate-image \
   -H "Content-Type: application/json" \
   -d '{"prompt": "A futuristic server room", "image_model": "sd-turbo", "steps": 4}'
+
+# Benchmark a model (use /chat and compare elapsed/tokens across models)
+curl -X POST http://server:5000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Write a Python CSV parser with error handling", "model": "qwen2.5-coder:7b"}'
+# Response includes: elapsed, prompt_tokens, response_tokens, total_tokens
+
+# List available models (to know what to benchmark)
+curl http://server:5000/models
+
+# Check which models each backend supports
+curl http://server:5000/queue-status
+# Response includes per-backend: max_model, status, queue_size
 ```
 
 ### Status & Control Endpoints
@@ -337,6 +351,39 @@ tail -f /var/log/ansible-ollama.log
 | `qwen2.5-coder:7b` | 30-60s | Best balance |
 | `deepseek-coder:6.7b` | 30-60s | Alternative |
 | `qwen2.5-coder:14b` | 1-3min | Higher quality, needs 32+ cores |
+
+### Benchmarking Models
+
+Use `,test` in the CLI to compare models side by side:
+
+```bash
+,test              # Interactive — pick a model or all
+,test all          # Benchmark all runnable models
+,test qwen         # Benchmark models matching "qwen"
+,test 7b --prompt "Explain quicksort"   # Custom prompt, models matching "7b"
+,test all --prompt "Write a REST API"   # Custom prompt, all models
+```
+
+Output includes a comparison table with time, token counts, and tokens/sec for each model, followed by cloud cost estimates showing what the same request would cost on Claude, GPT-4o, Gemini, and Llama 3 via cloud providers.
+
+Models that are too large for your backends (based on `max_model` in `backends.json`) are automatically skipped when testing all. They show as "(too large)" in the interactive picker.
+
+To benchmark via the API directly:
+
+```bash
+# Time a request and check token counts
+curl -X POST http://server:5000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "your prompt here", "model": "qwen2.5-coder:7b"}'
+# Response: {"response": "...", "elapsed": 34.2, "prompt_tokens": 142,
+#            "response_tokens": 312, "total_tokens": 454}
+
+# List models available to benchmark
+curl http://server:5000/models
+
+# Check backend capacity (max_model per backend)
+curl http://server:5000/queue-status
+```
 
 ## Troubleshooting
 
