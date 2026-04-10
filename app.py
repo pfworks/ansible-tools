@@ -488,8 +488,19 @@ def queue_status():
     if active_task:
         status['active_type'] = active_task.get('type', 'generate')
         status['active_model'] = active_task.get('model', 'unknown')
+        status['active_client'] = active_task.get('client_ip', '')
+        status['active_agent'] = active_task.get('client_agent', '')
+        status['active_summary'] = active_task.get('summary', '')
     
     return jsonify(status)
+
+@app.route('/models')
+def list_models():
+    try:
+        models = ollama.list()
+        return jsonify({'models': [{'name': m.model, 'size': m.size} for m in models.models]})
+    except Exception as e:
+        return jsonify({'models': [], 'error': str(e)})
 
 @app.route('/generate', methods=['POST'])
 def generate():
@@ -502,7 +513,10 @@ def generate():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event}
+    summary = commands[:80].replace('\n', ' ')
+    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event,
+            'client_ip': request.remote_addr, 'client_agent': request.headers.get('User-Agent', ''),
+            'summary': f'shell2ansible: {summary}'}
     task_queue.put(task)
     
     event.wait()

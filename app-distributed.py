@@ -10,6 +10,9 @@ import os
 
 app = Flask(__name__)
 
+# Persistence file
+HISTORY_FILE = os.path.join(os.path.dirname(__file__), 'shellama-history.json')
+
 # Per-IP token tracking
 ip_token_history = {}  # {ip: [{timestamp, tokens}]}
 ip_token_lock = Lock()
@@ -18,6 +21,46 @@ IP_HISTORY_MAX = 8640  # ~1 day at 10s intervals
 # Per-backend token tracking (snapshots of cumulative totals)
 backend_token_history = {}  # {url: [{timestamp, tokens}]}
 last_backend_tokens = {}    # {url: last_known_total} for computing deltas
+
+# Queue history for graphs
+queue_history = {}  # {url: [{timestamp, queue_size}]}
+QUEUE_HISTORY_MAX = 86400  # ~1 day at 1s intervals
+
+
+def load_history():
+    global ip_token_history, backend_token_history, queue_history
+    try:
+        with open(HISTORY_FILE, 'r') as f:
+            data = json.load(f)
+            ip_token_history = data.get('ip_tokens', {})
+            backend_token_history = data.get('backend_tokens', {})
+            queue_history = data.get('queue', {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+
+def save_history():
+    with ip_token_lock:
+        data = {
+            'ip_tokens': ip_token_history,
+            'backend_tokens': backend_token_history,
+            'queue': queue_history
+        }
+    try:
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def periodic_save():
+    while True:
+        time.sleep(60)
+        save_history()
+
+
+load_history()
+Thread(target=periodic_save, daemon=True).start()
 
 def record_ip_tokens(ip, tokens):
     """Record token usage for a client IP"""
@@ -296,11 +339,12 @@ def queue_status():
                 'cpu_freq_mhz': 0
             })
     
-    # Record per-backend token deltas
+    # Record per-backend token deltas and queue history
     now = time.time()
     with ip_token_lock:
         for b in backends_info:
             url = b['url']
+            # Token deltas
             cur = b.get('tokens', 0)
             prev = last_backend_tokens.get(url, cur)
             delta = cur - prev
@@ -311,6 +355,12 @@ def queue_status():
                 backend_token_history[url].append({'timestamp': now, 'tokens': delta})
                 if len(backend_token_history[url]) > IP_HISTORY_MAX:
                     backend_token_history[url] = backend_token_history[url][-IP_HISTORY_MAX:]
+            # Queue history
+            if url not in queue_history:
+                queue_history[url] = []
+            queue_history[url].append({'timestamp': now, 'queue_size': b.get('queue_size', 0)})
+            if len(queue_history[url]) > QUEUE_HISTORY_MAX:
+                queue_history[url] = queue_history[url][-QUEUE_HISTORY_MAX:]
 
     return jsonify({
         'queue_size': total_queue,
@@ -406,26 +456,32 @@ def analyze_endpoint():
                 'parallel': False
             }), 200
         
-        # Multiple backends available, process in parallel
+        # Multiple backends available, process in parallel in batches
         results = []
-        threads = []
-        
-        def process_file(file_data, idx):
-            result, status = proxy_request('/analyze', {'files': [file_data], 'model': model}, client_ip)
-            results.append((idx, result, status))
-        
-        for idx, file_data in enumerate(files):
-            t = Thread(target=process_file, args=(file_data, idx))
-            t.start()
-            threads.append(t)
-        
-        for t in threads:
-            t.join()
-        
+
+        for batch_start in range(0, len(files), available_backends):
+            batch = files[batch_start:batch_start + available_backends]
+            threads = []
+            batch_results = []
+
+            def process_file(file_data, idx, out):
+                result, status = proxy_request('/analyze', {'files': [file_data], 'model': model}, client_ip)
+                out.append((idx, result, status))
+
+            for i, file_data in enumerate(batch):
+                t = Thread(target=process_file, args=(file_data, batch_start + i, batch_results))
+                t.start()
+                threads.append(t)
+
+            for t in threads:
+                t.join()
+
+            results.extend(batch_results)
+
         # Check for errors
         errors = [r[1].get('error') for r in results if r[1].get('error')]
         if errors:
-            return jsonify({'error': f"Errors from backends: {'; '.join(errors)}"}), 200
+            return jsonify({'error': f"Errors from backends: {'; '.join(set(errors))}"}), 200
         
         # Combine analyses
         results.sort(key=lambda x: x[0])
@@ -461,6 +517,12 @@ def ip_tokens():
             result[f"backend:{url}"] = entries
         return jsonify(result)
 
+@app.route('/queue-history')
+def get_queue_history():
+    """Return persisted queue history for graphs."""
+    with ip_token_lock:
+        return jsonify(queue_history)
+
 @app.route('/generate-image', methods=['POST'])
 def generate_image_endpoint():
     data = request.json
@@ -478,6 +540,19 @@ def image_models():
         except:
             continue
     return jsonify({'models': []})
+
+@app.route('/models')
+def list_models():
+    """Aggregate models from all backends, deduplicated."""
+    seen = {}
+    for backend in BACKENDS:
+        try:
+            resp = requests.get(f"{backend['url']}/models", timeout=5)
+            for m in resp.json().get('models', []):
+                seen[m['name']] = m
+        except:
+            continue
+    return jsonify({'models': sorted(seen.values(), key=lambda m: m['name'])})
 
 @app.route('/upload', methods=['POST'])
 def upload():

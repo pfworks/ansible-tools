@@ -490,11 +490,43 @@
                 });
         }
 
-        // Update immediately and then every 2 seconds
-        updateStatus();
+        function loadQueueHistory() {
+            fetch('/queue-history')
+                .then(r => r.json())
+                .then(data => {
+                    Object.keys(data).forEach(url => {
+                        const entries = data[url];
+                        Object.keys(historicalData).forEach(range => {
+                            const rangeMs = {hour:3600,day:86400,week:604800,month:2592000,year:31536000};
+                            const cutoff = (Date.now()/1000) - rangeMs[range];
+                            const maxPoints = timeRanges[range].points;
+                            if (!historicalData[range].queue[url]) historicalData[range].queue[url] = [];
+                            entries.forEach(e => {
+                                if (e.timestamp >= cutoff) {
+                                    historicalData[range].labels.push(new Date(e.timestamp*1000).toLocaleTimeString());
+                                    historicalData[range].queue[url].push(e.queue_size);
+                                }
+                            });
+                            // Trim
+                            if (historicalData[range].labels.length > maxPoints) {
+                                historicalData[range].labels = historicalData[range].labels.slice(-maxPoints);
+                            }
+                            if (historicalData[range].queue[url].length > maxPoints) {
+                                historicalData[range].queue[url] = historicalData[range].queue[url].slice(-maxPoints);
+                            }
+                        });
+                    });
+                    setTimeRange(timeRange);
+                })
+                .catch(() => {});
+        }
+
+        // Load persisted history, then start live updates
+        loadQueueHistory();
         fetchIpTokens();
+        updateStatus();
         setInterval(updateStatus, 2000);
-        setInterval(fetchIpTokens, 10000);  // Refresh IP token data every 10s
+        setInterval(fetchIpTokens, 10000);
     </script>
 </body>
 </html>
