@@ -67,6 +67,8 @@ shellama/
 │   ├── inventory-frontend.ini.example
 │   ├── backends.json.example
 │   └── com.ooma.ansible-ollama.plist  # macOS LaunchDaemon
+├── shared/                     # Shared Python modules
+│   └── constants.py           # Cloud pricing, test prompt, model_size()
 ├── docs/                       # Documentation
 │   ├── cloud-fallback-setup.md   # OpenRouter + LiteLLM guide
 │   ├── cloud-fallback-setup.pdf  # PDF version
@@ -229,18 +231,22 @@ curl -X POST http://server:5000/generate-image \
   -H "Content-Type: application/json" \
   -d '{"prompt": "A futuristic server room", "image_model": "sd-turbo", "steps": 4}'
 
-# Benchmark a model (use /chat and compare elapsed/tokens across models)
-curl -X POST http://server:5000/chat \
+# Benchmark a model (use /test endpoint)
+curl -X POST http://server:5000/test \
   -H "Content-Type: application/json" \
-  -d '{"message": "Write a Python CSV parser with error handling", "model": "qwen2.5-coder:7b"}'
-# Response includes: elapsed, prompt_tokens, response_tokens, total_tokens
+  -d '{"model": "all"}'
+# Response: {results: [{model, elapsed, prompt_tokens, response_tokens, ...}], cloud_costs: [...]}
 
-# List available models (to know what to benchmark)
+# Benchmark specific models with custom prompt
+curl -X POST http://server:5000/test \
+  -H "Content-Type: application/json" \
+  -d '{"model": "llama3.2", "prompt": "Explain quicksort"}'
+
+# List available models
 curl http://server:5000/models
 
 # Check which models each backend supports
 curl http://server:5000/queue-status
-# Response includes per-backend: max_model, status, queue_size
 ```
 
 ### Status & Control Endpoints
@@ -250,6 +256,7 @@ curl http://server:5000/queue-status
 | `/queue-status` | GET | Aggregate queue/backend status, token/request totals |
 | `/models` | GET | List available Ollama models (deduplicated across backends) |
 | `/image-models` | GET | List image generation models |
+| `/test` | POST | Benchmark models: `{"model": "all\|name", "prompt": "..."}` |
 | `/ip-tokens` | GET | Token usage history per client IP and per backend |
 | `/queue-history` | GET | Queue size history for graphs |
 | `/usage-stats` | GET | Cumulative usage by client IP and by task type |
@@ -364,25 +371,27 @@ Use `,test` in the CLI to compare models side by side:
 ,test all --prompt "Write a REST API"   # Custom prompt, all models
 ```
 
-Output includes a comparison table with time, token counts, and tokens/sec for each model, followed by cloud cost estimates showing what the same request would cost on Claude, GPT-4o, Gemini, and Llama 3 via cloud providers.
+Output includes a comparison table with time, token counts, and tokens/sec for each model, followed by cloud cost estimates showing what the same request would cost on Claude, GPT-4o, Gemini, Grok, Llama 3, and Amazon Nova via cloud providers.
 
 Models that are too large for your backends (based on `max_model` in `backends.json`) are automatically skipped when testing all. They show as "(too large)" in the interactive picker.
 
 To benchmark via the API directly:
 
 ```bash
-# Time a request and check token counts
-curl -X POST http://server:5000/chat \
+# Benchmark all runnable models with default prompt
+curl -X POST http://server:5000/test \
   -H "Content-Type: application/json" \
-  -d '{"message": "your prompt here", "model": "qwen2.5-coder:7b"}'
-# Response: {"response": "...", "elapsed": 34.2, "prompt_tokens": 142,
-#            "response_tokens": 312, "total_tokens": 454}
+  -d '{"model": "all"}'
 
-# List models available to benchmark
-curl http://server:5000/models
+# Benchmark specific models with custom prompt
+curl -X POST http://server:5000/test \
+  -H "Content-Type: application/json" \
+  -d '{"model": "llama3.2", "prompt": "Explain quicksort"}'
 
-# Check backend capacity (max_model per backend)
-curl http://server:5000/queue-status
+# Response:
+# {"prompt": "...", "results": [{model, elapsed, prompt_tokens, response_tokens,
+#   total_tokens, tok_per_sec}], "skipped": [...], "cloud_costs": [{provider,
+#   input_cost, output_cost, total_cost}]}
 ```
 
 ## Troubleshooting

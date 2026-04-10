@@ -35,6 +35,8 @@ shellama/
 │   ├── inventory-frontend.ini.example
 │   ├── backends.json.example
 │   └── com.ooma.ansible-ollama.plist  # macOS LaunchDaemon
+├── shared/                     # Shared Python modules
+│   └── constants.py           # Cloud pricing, test prompt, model_size()
 ├── docs/                       # Documentation
 │   ├── cloud-fallback-setup.md   # OpenRouter + LiteLLM guide
 │   ├── cloud-fallback-setup.pdf  # PDF version
@@ -129,7 +131,7 @@ Clients → app-distributed.py (Frontend :5000) → Backend Farm
 | `,analyze <paths>` | `/analyze` | Files and/or directories, recursive |
 | `,img <prompt>` | `/generate-image` | Text-to-image (Stable Diffusion) |
 | `,models` | `/models` | List and select model |
-| `,test [model\|all] [--prompt "..."]` | `/chat` | Benchmark models — speed, tokens, cloud cost estimate |
+| `,test [model\|all] [--prompt "..."]` | `/test` | Benchmark models — speed, tokens, cloud cost estimate |
 | `,tokens` | — | Show session usage stats (CLI only) |
 | `,quiet` | — | Toggle quiet mode (CLI only) |
 | `,stop` | `/stop-all` | Stop backend processing (GUI only) |
@@ -164,6 +166,7 @@ All backend endpoints above are proxied through the frontend, plus:
 | `/stats` | GET | Serve `stats.html` |
 | `/stop-all` | POST | Stop processing on all backends |
 | `/stop-backend` | POST | Stop a specific backend (takes `{"url": "..."}`) |
+| `/test` | POST | Benchmark models: `{"model": "all\|name", "prompt": "..."}` |
 | `/ip-tokens` | GET | Token usage history per client IP and per backend |
 | `/queue-history` | GET | Queue size history for graphs |
 | `/usage-stats` | GET | Cumulative usage by client IP and by task type |
@@ -217,13 +220,16 @@ See `docs/cloud-fallback-setup.md` for full guide.
 
 ## Benchmarking (`,test`)
 
-Sends a standard prompt (or custom `--prompt`) to one or more models via `/chat`, collects `elapsed`, `prompt_tokens`, `response_tokens`, `total_tokens`, computes `tok/s`.
+Frontend `/test` endpoint handles all benchmarking server-side. CLI just calls the API and displays results.
 
-- Fetches model list from `/models`, backend capacity from `/queue-status`
-- Extracts numeric size from model names (e.g. `qwen2.5-coder:14b` → 14) and compares against `max_model` from online backends
-- Models too large are skipped in "all" mode, shown as "(too large)" in interactive picker
-- After results, prints cloud cost estimate table using per-1M-token pricing for Claude 3.5 Sonnet, Claude 3.5 Haiku, GPT-4o, GPT-4o mini, Gemini 1.5 Pro, Gemini 1.5 Flash, Llama 3 70B
-- Pricing constants are in `CLOUD_PRICING` dict in `cli/shellama`
+- `POST /test {"model": "all"}` — benchmarks all runnable models with default prompt
+- `POST /test {"model": "llama3.2", "prompt": "..."}` — specific model(s), custom prompt
+- Filters by `max_model` from online backends via `model_size()` in `shared/constants.py`
+- Returns `results` (per-model: elapsed, tokens, tok/s), `skipped` (too large), `cloud_costs`
+- Cloud cost estimates use `CLOUD_PRICING` dict in `shared/constants.py`:
+  Claude 4 Sonnet/Haiku, Claude 3.5 Sonnet, GPT-4o/mini, OpenAI o3/o4-mini,
+  Azure GPT-4o, Gemini 2.5 Pro/Flash, Grok 3/mini, Llama 3 70B, Amazon Nova Pro/Lite
+- CLI interactive picker still fetches `/models` + `/queue-status` locally for the "(too large)" display, then sends selection to `/test`
 
 ## Key Design Decisions
 
@@ -237,9 +243,11 @@ Sends a standard prompt (or custom `--prompt`) to one or more models via `/chat`
 
 5. **Persistent stats**: Both backend and frontend save stats to JSON files every 60 seconds. Frontend detects backend restarts by comparing current vs previous token counts.
 
-6. **Model size filtering**: `max_model` in `backends.json` prevents routing large model requests to backends that can't handle them. Numeric size comparison via `MODEL_SIZES` dict.
+6. **Model size filtering**: `max_model` in `backends.json` prevents routing large model requests to backends that can't handle them. Numeric size comparison via `model_size()` in `shared/constants.py`.
 
-7. **Async HTTP in PowerShell GUIs**: Both `.ps1` and `.cmd` GUIs use `HttpWebRequest.BeginGetResponse` + `DoEvents()` loop to keep UI responsive during long API calls. `$script:formClosing` flag + `try/catch [WebException]` + `finally` cleanup prevents kernel security exceptions on form close.
+7. **Shared constants**: `shared/constants.py` is the single source of truth for cloud pricing, test prompt, and `model_size()`. Frontend `/test` endpoint imports from it. CLI has no local pricing logic — just calls the API.
+
+8. **Async HTTP in PowerShell GUIs**: Both `.ps1` and `.cmd` GUIs use `HttpWebRequest.BeginGetResponse` + `DoEvents()` loop to keep UI responsive during long API calls. `$script:formClosing` flag + `try/catch [WebException]` + `finally` cleanup prevents kernel security exceptions on form close.
 
 ## Known Issues
 
