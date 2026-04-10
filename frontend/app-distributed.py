@@ -7,6 +7,7 @@ from threading import Thread, Lock
 import time
 import uuid
 import os
+import sys
 
 app = Flask(__name__)
 
@@ -662,6 +663,82 @@ def list_models():
         except:
             continue
     return jsonify({'models': sorted(seen.values(), key=lambda m: m['name'])})
+
+@app.route('/test', methods=['POST'])
+def test_models():
+    """Benchmark models with optional custom prompt. Returns results + cloud cost estimates."""
+    _proj = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+    if _proj not in sys.path:
+        sys.path.insert(0, _proj)
+    from shared.constants import TEST_PROMPT, model_size, cloud_cost_estimates
+
+    data = request.json or {}
+    prompt = data.get('prompt', TEST_PROMPT)
+    model_filter = data.get('model', 'all')
+    client_ip = request.remote_addr
+
+    # Get available models from any reachable backend
+    all_models = []
+    for b in BACKENDS:
+        try:
+            resp = requests.get(f"{b['url']}/models", timeout=5)
+            all_models = [m['name'] for m in resp.json().get('models', [])]
+            if all_models:
+                break
+        except:
+            continue
+    if not all_models:
+        return jsonify({'error': 'No models available'}), 200
+
+    # Filter models
+    if model_filter == 'all':
+        max_sizes = []
+        for b in BACKENDS:
+            try:
+                requests.get(f"{b['url']}/queue-status", timeout=2)
+                max_sizes.append(model_size(b.get('max_model', '')))
+            except:
+                pass
+        max_avail = max(max_sizes) if max_sizes else 999
+        test_list = [m for m in all_models if model_size(m) <= max_avail]
+        skipped = [m for m in all_models if model_size(m) > max_avail]
+    else:
+        test_list = [m for m in all_models if model_filter in m]
+        skipped = []
+
+    if not test_list:
+        return jsonify({'error': f'No models matching "{model_filter}"'}), 200
+
+    results = []
+    for m in test_list:
+        result, status = proxy_request('/chat', {'message': prompt, 'model': m}, client_ip, 'test')
+        if result.get('error'):
+            results.append({'model': m, 'error': result['error']})
+            continue
+        p = result.get('prompt_tokens', 0)
+        r = result.get('response_tokens', 0)
+        t = result.get('total_tokens', 0)
+        e = result.get('elapsed', 0)
+        results.append({
+            'model': m, 'elapsed': e, 'prompt_tokens': p,
+            'response_tokens': r, 'total_tokens': t,
+            'tok_per_sec': round(r / e, 1) if e > 0 else 0,
+        })
+
+    # Cloud cost estimates using average tokens
+    ok = [r for r in results if 'error' not in r and r.get('total_tokens', 0) > 0]
+    costs = []
+    if ok:
+        avg_p = sum(r['prompt_tokens'] for r in ok) // len(ok)
+        avg_r = sum(r['response_tokens'] for r in ok) // len(ok)
+        costs = cloud_cost_estimates(avg_p, avg_r)
+
+    return jsonify({
+        'prompt': prompt,
+        'results': results,
+        'skipped': skipped,
+        'cloud_costs': costs,
+    }), 200
 
 @app.route('/upload', methods=['POST'])
 def upload():
