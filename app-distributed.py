@@ -202,6 +202,10 @@ def proxy_request(endpoint, data, client_ip=None):
     if not backend:
         return {'error': f'No backends available that support model {model}. Check backends.json configuration.'}, 200
     
+    # Forward client info to backend for tracking
+    if client_ip:
+        data['client_ip'] = client_ip
+    
     try:
         session = requests.Session()
         session.headers.update({'Connection': 'keep-alive'})
@@ -313,6 +317,10 @@ def queue_status():
                 'active': is_active,
                 'status': 'online',
                 'active_model': data.get('active_model', 'none'),
+                'active_type': data.get('active_type', ''),
+                'active_client': data.get('active_client', ''),
+                'active_agent': data.get('active_agent', ''),
+                'active_summary': data.get('active_summary', ''),
                 'tokens': data.get('total_tokens', 0),
                 'cpu_percent': cpu_pct,
                 'ram_available_gb': ram_avail,
@@ -372,6 +380,31 @@ def queue_status():
         'backends': backends_info,
         'timestamp': time.time()
     })
+
+@app.route('/stop-all', methods=['POST'])
+def stop_all():
+    """Stop processing on all backends"""
+    results = {}
+    for backend in BACKENDS:
+        url = backend['url']
+        try:
+            resp = requests.post(f"{url}/stop", timeout=10)
+            results[url] = resp.json()
+        except Exception as e:
+            results[url] = {'error': str(e)}
+    return jsonify(results)
+
+@app.route('/stop-backend', methods=['POST'])
+def stop_backend():
+    """Stop processing on a specific backend"""
+    url = request.json.get('url', '')
+    if not url:
+        return jsonify({'error': 'No backend URL provided'}), 400
+    try:
+        resp = requests.post(f"{url}/stop", timeout=10)
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/generate', methods=['POST'])
 def generate():

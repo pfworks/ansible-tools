@@ -128,6 +128,55 @@
             background: #ffff00;
             color: #000;
         }
+        .stop-btn {
+            background: #ff0000;
+            color: #fff;
+            border: 2px solid #ff0000;
+            padding: 6px 16px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .stop-btn:hover {
+            background: #cc0000;
+            border-color: #cc0000;
+        }
+        .stop-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .stop-all-bar {
+            text-align: center;
+            margin: 15px 0;
+        }
+        .stop-all-btn {
+            background: #ff0000;
+            color: #fff;
+            border: 2px solid #ff0000;
+            padding: 10px 30px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .stop-all-btn:hover {
+            background: #cc0000;
+            border-color: #cc0000;
+        }
+        .task-info {
+            background: #1a1a1a;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            margin-top: 8px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+        .task-info .task-label {
+            opacity: 0.6;
+        }
         .refresh-info {
             text-align: center;
             margin-top: 20px;
@@ -168,6 +217,9 @@
 
         <div class="backends">
             <h2>Backend Servers</h2>
+            <div class="stop-all-bar">
+                <button class="stop-all-btn" onclick="stopAll()">⛔ STOP ALL BACKENDS</button>
+            </div>
             <div id="backend-list"></div>
         </div>
 
@@ -464,11 +516,28 @@
                         const ramPct = backend.ram_total_gb > 0 ? Math.round((ramUsed / backend.ram_total_gb) * 100) : 0;
                         const cpuPct = Math.round(backend.cpu_percent || 0);
 
+                        let taskHtml = '';
+                        if (backend.active && backend.active_summary) {
+                            const client = backend.active_client || 'unknown';
+                            const agent = backend.active_agent || '';
+                            const shortAgent = agent.length > 60 ? agent.substring(0, 60) + '...' : agent;
+                            taskHtml = `
+                                <div class="task-info">
+                                    <span class="task-label">Task:</span> ${backend.active_summary}<br>
+                                    <span class="task-label">Client:</span> ${client}
+                                    ${shortAgent ? ' <span class="task-label">Agent:</span> ' + shortAgent : ''}
+                                </div>`;
+                        }
+
+                        const stopBtn = backend.status === 'online' ?
+                            `<button class="stop-btn" onclick="stopBackend('${backend.url}')" ${!backend.active ? 'disabled' : ''}>⛔ Stop</button>` : '';
+
                         div.innerHTML = `
                             <div class="backend-header">
                                 ${backend.url}
                                 ${statusBadge}
                                 ${activeBadge}
+                                ${stopBtn}
                             </div>
                             <div class="backend-info">
                                 Strength: <span class="strength-label" style="background:${sColor};color:#000;">${sLabel} (${strength}%)</span>
@@ -481,6 +550,7 @@
                                 <div class="hw-stat"><span class="label">Max Model:</span> ${backend.max_model}</div>
                             </div>
                             <div class="backend-info">Queue Size: ${backend.queue_size}${modelInfo}</div>
+                            ${taskHtml}
                         `;
                         backendList.appendChild(div);
                     });
@@ -488,6 +558,30 @@
                 .catch(error => {
                     console.error('Error fetching status:', error);
                 });
+        }
+
+        function stopBackend(url) {
+            if (!confirm('Stop processing on ' + url + '?')) return;
+            fetch('/stop-backend', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url: url})
+            }).then(r => r.json()).then(data => {
+                alert('Stop sent to ' + url + ': ' + JSON.stringify(data));
+                updateStatus();
+            }).catch(e => alert('Error: ' + e));
+        }
+
+        function stopAll() {
+            if (!confirm('Stop processing on ALL backends?')) return;
+            fetch('/stop-all', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    const msgs = Object.entries(data).map(([url, r]) =>
+                        url.replace(/^https?:\/\//, '') + ': ' + (r.error || 'stopped'));
+                    alert(msgs.join('\n'));
+                    updateStatus();
+                }).catch(e => alert('Error: ' + e));
         }
 
         function loadQueueHistory() {

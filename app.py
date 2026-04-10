@@ -11,6 +11,7 @@ app = Flask(__name__)
 task_queue = Queue()
 active_task = None
 task_results = {}
+stop_requested = False
 
 # Statistics tracking
 total_requests = 0
@@ -23,12 +24,13 @@ OPENROUTER_MODEL = os.environ.get('OPENROUTER_MODEL', 'anthropic/claude-3.5-sonn
 USE_CLOUD_FALLBACK = os.environ.get('USE_CLOUD_FALLBACK', 'false').lower() == 'true'
 
 def worker():
-    global active_task, total_requests, total_tokens
+    global active_task, total_requests, total_tokens, stop_requested
     while True:
         task = task_queue.get()
         if task is None:
             break
         active_task = task
+        stop_requested = False
         task_id = task['id']
         task_type = task.get('type')
         model = task.get('model', 'codellama:13b')
@@ -64,8 +66,12 @@ def worker():
             
             task_results[task_id] = result
         except Exception as e:
-            task_results[task_id] = {'error': f'Task processing failed: {str(e)}'}
+            if stop_requested:
+                task_results[task_id] = {'error': 'Task cancelled by admin'}
+            else:
+                task_results[task_id] = {'error': f'Task processing failed: {str(e)}'}
         
+        stop_requested = False
         task['event'].set()
         active_task = None
         task_queue.task_done()
@@ -494,6 +500,38 @@ def queue_status():
     
     return jsonify(status)
 
+@app.route('/stop', methods=['POST'])
+def stop_processing():
+    """Stop active task and clear queue"""
+    global active_task, stop_requested
+    stopped = {'active_cancelled': False, 'queue_cleared': 0}
+
+    # Clear queued tasks
+    cleared = 0
+    while not task_queue.empty():
+        try:
+            task = task_queue.get_nowait()
+            task_results[task['id']] = {'error': 'Task cancelled by admin'}
+            task['event'].set()
+            task_queue.task_done()
+            cleared += 1
+        except:
+            break
+    stopped['queue_cleared'] = cleared
+
+    # Signal active task to stop (ollama will be killed)
+    if active_task is not None:
+        stop_requested = True
+        stopped['active_cancelled'] = True
+        # Kill any running ollama process to interrupt inference
+        import subprocess
+        try:
+            subprocess.run(['pkill', '-f', 'ollama.*runner'], timeout=5)
+        except:
+            pass
+
+    return jsonify(stopped)
+
 @app.route('/models')
 def list_models():
     try:
@@ -515,7 +553,8 @@ def generate():
     event = Event()
     summary = commands[:80].replace('\n', ' ')
     task = {'id': task_id, 'commands': commands, 'model': model, 'event': event,
-            'client_ip': request.remote_addr, 'client_agent': request.headers.get('User-Agent', ''),
+            'client_ip': request.json.get('client_ip', request.remote_addr),
+            'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'shell2ansible: {summary}'}
     task_queue.put(task)
     
@@ -527,7 +566,6 @@ def generate():
     
     if queue_size > 0:
         result['queue_position'] = queue_size + 1
-    result['task_id'] = task_id
     result['task_id'] = task_id
     
     return jsonify(result)
@@ -547,7 +585,9 @@ def upload():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event}
+    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event,
+            'client_ip': request.remote_addr, 'client_agent': request.headers.get('User-Agent', ''),
+            'summary': f'upload: {commands[:80].replace(chr(10), " ")}'}
     task_queue.put(task)
     
     event.wait()
@@ -573,7 +613,10 @@ def explain():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'playbook': playbook, 'model': model, 'event': event, 'type': 'explain'}
+    task = {'id': task_id, 'playbook': playbook, 'model': model, 'event': event, 'type': 'explain',
+            'client_ip': request.json.get('client_ip', request.remote_addr),
+            'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
+            'summary': f'explain: {playbook[:80].replace(chr(10), " ")}'}
     task_queue.put(task)
     
     event.wait()
@@ -599,7 +642,10 @@ def generate_code_endpoint():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'description': description, 'model': model, 'event': event, 'type': 'generate_code'}
+    task = {'id': task_id, 'description': description, 'model': model, 'event': event, 'type': 'generate_code',
+            'client_ip': request.json.get('client_ip', request.remote_addr),
+            'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
+            'summary': f'codegen: {description[:80].replace(chr(10), " ")}'}
     task_queue.put(task)
     
     event.wait()
@@ -625,7 +671,10 @@ def explain_code_endpoint():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'code': code, 'model': model, 'event': event, 'type': 'explain_code'}
+    task = {'id': task_id, 'code': code, 'model': model, 'event': event, 'type': 'explain_code',
+            'client_ip': request.json.get('client_ip', request.remote_addr),
+            'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
+            'summary': f'explain-code: {code[:80].replace(chr(10), " ")}'}
     task_queue.put(task)
     
     event.wait()
@@ -651,7 +700,10 @@ def chat_endpoint():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'message': message, 'model': model, 'event': event, 'type': 'chat'}
+    task = {'id': task_id, 'message': message, 'model': model, 'event': event, 'type': 'chat',
+            'client_ip': request.json.get('client_ip', request.remote_addr),
+            'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
+            'summary': f'chat: {message[:80].replace(chr(10), " ")}'}
     task_queue.put(task)
     
     event.wait()
@@ -677,7 +729,11 @@ def analyze_endpoint():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'files': files, 'model': model, 'event': event, 'type': 'analyze'}
+    paths = ', '.join(f.get('path', '?') for f in files[:3])
+    task = {'id': task_id, 'files': files, 'model': model, 'event': event, 'type': 'analyze',
+            'client_ip': request.json.get('client_ip', request.remote_addr),
+            'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
+            'summary': f'analyze: {paths}'}
     task_queue.put(task)
     
     event.wait()
@@ -708,7 +764,10 @@ def generate_image_endpoint():
     event = Event()
     task = {'id': task_id, 'prompt': prompt, 'image_model': image_model,
             'steps': steps, 'width': width, 'height': height,
-            'model': 'none', 'event': event, 'type': 'generate_image'}
+            'model': 'none', 'event': event, 'type': 'generate_image',
+            'client_ip': request.json.get('client_ip', request.remote_addr),
+            'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
+            'summary': f'image: {prompt[:80]}'}
     task_queue.put(task)
     
     event.wait()

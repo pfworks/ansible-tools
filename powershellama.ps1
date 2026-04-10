@@ -86,6 +86,13 @@ function Invoke-AIChat {
         $body = @{ message = $Message; model = $SHELLAMA_MODEL } | ConvertTo-Json
         $resp = Invoke-RestMethod -Uri "$SHELLAMA_API/chat" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 3600
         return $resp
+    } catch [System.Management.Automation.PipelineStoppedException] {
+        # Ctrl+C pressed — stop backend
+        try { Invoke-RestMethod -Uri "$SHELLAMA_API/stop-all" -Method Post -TimeoutSec 5 | Out-Null } catch {}
+        return @{ error = "cancelled" }
+    } catch [System.OperationCanceledException] {
+        try { Invoke-RestMethod -Uri "$SHELLAMA_API/stop-all" -Method Post -TimeoutSec 5 | Out-Null } catch {}
+        return @{ error = "cancelled" }
     } catch {
         return @{ error = $_.Exception.Message }
     }
@@ -101,6 +108,10 @@ function Invoke-AISimple {
         if ($resp.error) { Write-Host "shellama: $($resp.error)" -ForegroundColor Red; return }
         Write-Host "${CYAN}$($resp.$ResultKey)${RESET}"
         Write-Host "${GRAY}[$($resp.elapsed)s | $($resp.total_tokens) tokens | $SHELLAMA_MODEL]${RESET}"
+    } catch [System.Management.Automation.PipelineStoppedException] {
+        Stop-LlamaSpinner
+        Write-Host "`n${GRAY}cancelled - stopping backend...${RESET}"
+        try { Invoke-RestMethod -Uri "$SHELLAMA_API/stop-all" -Method Post -TimeoutSec 5 | Out-Null } catch {}
     } catch {
         Stop-LlamaSpinner
         Write-Host "shellama: $_" -ForegroundColor Red
@@ -192,6 +203,10 @@ function Invoke-AIImage {
         [IO.File]::WriteAllBytes("$PWD\$outfile", [Convert]::FromBase64String($resp.image))
         Write-Host "${CYAN}$(Resolve-Path $outfile)${RESET}"
         Write-Host "${GRAY}[$($resp.elapsed)s | $($resp.model) | $($resp.steps) steps]${RESET}"
+    } catch [System.Management.Automation.PipelineStoppedException] {
+        Stop-LlamaSpinner
+        Write-Host "`n${GRAY}cancelled - stopping backend...${RESET}"
+        try { Invoke-RestMethod -Uri "$SHELLAMA_API/stop-all" -Method Post -TimeoutSec 5 | Out-Null } catch {}
     } catch {
         Stop-LlamaSpinner
         Write-Host "shellama: $_" -ForegroundColor Red

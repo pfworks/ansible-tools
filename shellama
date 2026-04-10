@@ -189,6 +189,13 @@ def ai_chat(message, model):
         if data.get('error'):
             return None, 0, 0, data['error']
         return data.get('response', ''), data.get('total_tokens', 0), data.get('elapsed', 0), None
+    except KeyboardInterrupt:
+        # User hit Ctrl+C — tell backend to stop
+        try:
+            requests.post(f"{API_URL}/stop-all", timeout=5)
+        except Exception:
+            pass
+        return None, 0, 0, 'cancelled'
     except requests.exceptions.ConnectionError:
         return None, 0, 0, f"cannot reach {API_URL}"
     except Exception as e:
@@ -277,6 +284,13 @@ def ai_simple(endpoint, payload, result_key):
             return
         print(f"{CYAN}{data.get(result_key, '')}{RESET}")
         print(f"{GRAY}[{data.get('elapsed', 0):.1f}s | {data.get('total_tokens', 0)} tokens | {MODEL}]{RESET}", file=sys.stderr)
+    except KeyboardInterrupt:
+        spinner.stop()
+        print(f"\n{GRAY}cancelled — stopping backend...{RESET}", file=sys.stderr)
+        try:
+            requests.post(f"{API_URL}/stop-all", timeout=5)
+        except Exception:
+            pass
     except requests.exceptions.ConnectionError:
         spinner.stop()
         print(f"shellama: cannot reach {API_URL}", file=sys.stderr)
@@ -308,6 +322,13 @@ def ai_image(prompt):
             f.write(img_data)
         print(f"{CYAN}{os.path.abspath(outfile)}{RESET}")
         print(f"{GRAY}[{data.get('elapsed', 0):.1f}s | {data.get('model', image_model)} | {data.get('steps', steps)} steps]{RESET}", file=sys.stderr)
+    except KeyboardInterrupt:
+        spinner.stop()
+        print(f"\n{GRAY}cancelled — stopping backend...{RESET}", file=sys.stderr)
+        try:
+            requests.post(f"{API_URL}/stop-all", timeout=5)
+        except Exception:
+            pass
     except requests.exceptions.ConnectionError:
         spinner.stop()
         print(f"shellama: cannot reach {API_URL}", file=sys.stderr)
@@ -430,7 +451,7 @@ def get_prompt():
 
 
 def main():
-    signal.signal(signal.SIGINT, lambda *_: print())
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     signal.signal(signal.SIGTSTP, signal.SIG_IGN)
     quiet = os.environ.get('AI_QUIET', '').lower() in ('1', 'true', 'yes')
 
