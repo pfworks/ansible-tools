@@ -24,8 +24,8 @@ shellama/
 │   ├── app-distributed.py     # Weighted routing, parallel analysis, usage tracking, stats
 │   ├── ansible-ollama-frontend.service
 │   └── web/                   # Web UI + admin console
-│       ├── index.html         # Main web UI (all services)
-│       ├── status.html        # Admin: status summary
+│       ├── index.html         # Legacy web UI (/ redirects to /status)
+│       ├── status.html        # Admin: status summary + cloud cost tab
 │       ├── backends.html      # Admin: backend details with strength bars
 │       └── stats.html         # Admin: Chart.js graphs with time range selector
 ├── deploy/                     # Ansible deployment
@@ -111,12 +111,11 @@ Clients → app-distributed.py (Frontend :5000) → Backend Farm
 - Session token counter in UI
 
 ### Web UI (`frontend/web/index.html`)
-- All services: Shell→Ansible, Explain Playbook, Generate Code, Explain Code, Chat, Analyze Files, Generate Image
-- Model selection dropdown, dark mode toggle
-- File upload, copy/save output, queue position display, token statistics
+- Legacy web client — `/` now redirects to `/status`
+- Still accessible directly if needed but no longer the default landing page
 
 ### Admin Console (3 pages with shared nav bar)
-- **Status** (`frontend/web/status.html`) — `/status` — Summary: total requests, tokens, active backends, queue size
+- **Status** (`frontend/web/status.html`) — `/status` — Summary: total requests, tokens, active backends, queue size, cloud cost running tab (per-provider costs, auto-refreshes every 10s)
 - **Backends** (`frontend/web/backends.html`) — `/backends` — Per-backend: online/offline, CPU/RAM/arch, weight, models, active task, strength bars
 - **Stats** (`frontend/web/stats.html`) — `/stats` — Chart.js graphs: queue size and token usage over time, time range selector (hour/day/week/month/year)
 
@@ -141,7 +140,7 @@ Clients → app-distributed.py (Frontend :5000) → Backend Farm
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/` | GET | Serve `index.html` |
+| `/` | GET | Redirect to `/status` |
 | `/chat` | POST | General chat (message, model) |
 | `/generate` | POST | Shell commands → Ansible playbook (commands, model) |
 | `/explain` | POST | Ansible playbook → explanation (playbook, model) |

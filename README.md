@@ -23,8 +23,7 @@ Local LLM-powered tool for code generation, explanation, shell-to-Ansible conver
 - PowerShell CLI (`powershell/powershellama.ps1`) — Windows
 - PowerShell GUI (`powershell/powershellama-gui.ps1`, `powershell/powershellama-gui.cmd`) — Windows
 - Python GUI (`cli/shellama-gui.pyw`) — cross-platform
-- Web UI with dark mode (`frontend/web/index.html`)
-- Admin console: Status, Backends, Stats pages
+- Admin console: Status (with cloud cost tab), Backends, Stats pages
 - REST API
 
 **Architecture:**
@@ -56,8 +55,8 @@ shellama/
 │   ├── app-distributed.py     # Weighted routing, parallel analysis, stats
 │   ├── ansible-ollama-frontend.service
 │   └── web/                   # Web UI + admin console
-│       ├── index.html         # Main web UI
-│       ├── status.html        # Admin: status summary
+│       ├── index.html         # Legacy web UI (/ redirects to /status)
+│       ├── status.html        # Admin: status summary + cloud cost tab
 │       ├── backends.html      # Admin: backend details
 │       └── stats.html         # Admin: charts and graphs
 ├── deploy/                     # Ansible deployment
@@ -113,7 +112,7 @@ pip install flask ollama pyyaml requests psutil
 python backend/app.py
 
 # 4. Access
-# Web UI: http://localhost:5000
+# Admin: http://localhost:5000
 # CLI:    ./cli/shellama
 # GUI:    python3 cli/shellama-gui.pyw
 ```
@@ -171,19 +170,13 @@ python3 cli/shellama-gui.pyw
 
 Cross-platform GUI with dark mode, color themes, multiple fonts, file/directory browser, interactive follow-up questions, error log viewer, persistent settings.
 
-## Web UI
-
-Access at `http://your-server:5000`
-
-Services: Shell→Ansible, Explain Playbook, Generate Code, Explain Code, Chat, Analyze Files, Generate Image.
-
-Features: model selection, dark mode, file upload, copy/save output, queue position display, token statistics.
-
 ## Admin Console
+
+Access at `http://your-server:5000` (redirects to `/status`)
 
 | Page | URL | Description |
 |------|-----|-------------|
-| Status | `/status` | Summary: total requests, tokens, active backends, queue size |
+| Status | `/status` | Summary: total requests, tokens, active backends, queue size, cloud cost tab |
 | Backends | `/backends` | Per-backend details: online/offline, CPU/RAM, weight, models, active task |
 | Stats | `/stats` | Charts: queue size and token usage over time (hour/day/week/month/year) |
 
