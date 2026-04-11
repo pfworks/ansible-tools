@@ -240,8 +240,10 @@ def ai_agent(query, quiet=False):
         commands = extract_bash_blocks(response)
 
         if not commands:
-            # Final answer
-            if not quiet:
+            # Final answer — always show, even in quiet mode
+            if quiet:
+                print(response)
+            else:
                 print(f"{CYAN}{response}{RESET}")
                 print(f"{GRAY}[{round_num + 1} round{'s' if round_num else ''} | {total_elapsed:.1f}s | {total_tokens} tokens | {MODEL}]{RESET}", file=sys.stderr)
             return
