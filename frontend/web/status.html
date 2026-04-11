@@ -59,7 +59,6 @@
                 <div class="section-title">Cloud Cost Running Tab <span id="pricing-source" style="opacity:0.5"></span></div>
                 <div>
                     <button class="btn" onclick="resetCloudCosts()">Clear Costs</button>
-                    <button class="btn danger" onclick="resetAll()">Clear All</button>
                 </div>
             </div>
             <div style="margin:8px 0; opacity:0.7; font-size:13px;">What your total usage would cost on cloud providers (excludes benchmarks)</div>
@@ -68,6 +67,10 @@
                 <thead><tr><th>Provider</th><th style="text-align:right">Input</th><th style="text-align:right">Output</th><th style="text-align:right">Total</th></tr></thead>
                 <tbody id="cost-table-body"></tbody>
             </table>
+        </div>
+
+        <div style="text-align:center; margin: 20px 0;">
+            <button class="btn danger" onclick="resetAll()">Clear All Stats &amp; Costs</button>
         </div>
 
         <div class="refresh-info">Auto-refreshing every 2 seconds (costs every 10 seconds)</div>
