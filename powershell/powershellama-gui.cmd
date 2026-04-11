@@ -1,5 +1,6 @@
 <# : batch launcher
 @echo off
+set "SHELLAMA_PS_DIR=%~dp0"
 powershell -ExecutionPolicy Bypass -NoProfile -Command "& {iex (Get-Content '%~f0' -Raw)}"
 exit /b
 #>
@@ -11,8 +12,9 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -Name Win32 -Namespace Native -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();'
 [Native.Win32]::ShowWindow([Native.Win32]::GetConsoleWindow(), 6) | Out-Null  # 6 = SW_MINIMIZE
 
-$SHELLAMA_API = if ($env:SHELLAMA_API) { $env:SHELLAMA_API } elseif ($env:ANSIBLE_TOOLS_API) { $env:ANSIBLE_TOOLS_API } else { "http://192.168.1.229:5000" }
-$SHELLAMA_MODEL = if ($env:SHELLAMA_MODEL) { $env:SHELLAMA_MODEL } else { "qwen2.5-coder:7b" }
+. "$env:SHELLAMA_PS_DIR\shellama-config.ps1"
+$SHELLAMA_API = $script:SHELLAMA_API
+$SHELLAMA_MODEL = $script:SHELLAMA_MODEL
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "sheLLaMa"
@@ -193,14 +195,7 @@ function Invoke-StopAll {
 function Invoke-AgentLoop {
     param([string]$Query)
     $model = $cmbModel.SelectedItem
-    $system = @"
-You are an AI assistant running inside a PowerShell session on Windows.
-Current directory: $(Get-Location)
-
-You can run PowerShell commands to answer the user's question. To run a command, output it in a ```powershell block.
-When you have enough info, give your final answer as plain text with no ```powershell blocks.
-Always run commands yourself. Keep commands short and focused.
-"@
+    $system = $script:SHELLAMA_SYSTEM_PROMPT -f (Get-Location)
     $conversation = "$system`n`nUser: $Query"
     $totalTokens = 0; $totalElapsed = 0
 
