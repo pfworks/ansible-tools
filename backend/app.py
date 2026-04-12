@@ -829,4 +829,15 @@ def image_models():
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    ssl_ctx = None
+    cert = os.environ.get('SHELLAMA_TLS_CERT')
+    key = os.environ.get('SHELLAMA_TLS_KEY')
+    ca = os.environ.get('SHELLAMA_TLS_CA')
+    if cert and key:
+        import ssl
+        ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(cert, key)
+        if ca:
+            ssl_ctx.load_verify_locations(ca)
+            ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+    app.run(host='0.0.0.0', port=5000, ssl_context=ssl_ctx)

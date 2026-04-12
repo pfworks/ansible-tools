@@ -11,6 +11,21 @@ import sys
 
 app = Flask(__name__)
 
+# Backend TLS client cert config (for frontend→backend mTLS)
+_backend_cert = os.environ.get('SHELLAMA_BACKEND_CERT')
+_backend_key = os.environ.get('SHELLAMA_BACKEND_KEY')
+_backend_ca = os.environ.get('SHELLAMA_BACKEND_CA')
+BACKEND_TLS = (_backend_cert, _backend_key) if _backend_cert and _backend_key else None
+BACKEND_VERIFY = _backend_ca if _backend_ca else True  # True = default CA bundle, path = custom CA
+
+def _backend_get(url, **kwargs):
+    """GET request to a backend with optional mTLS."""
+    return requests.get(url, cert=BACKEND_TLS, verify=BACKEND_VERIFY, **kwargs)
+
+def _backend_post(url, **kwargs):
+    """POST request to a backend with optional mTLS."""
+    return requests.post(url, cert=BACKEND_TLS, verify=BACKEND_VERIFY, **kwargs)
+
 # Persistence file
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), 'shellama-history.json')
 
@@ -148,7 +163,7 @@ backend_lock = Lock()
 def get_backend_queue_size(url):
     """Check backend queue size and capacity stats"""
     try:
-        resp = requests.get(
+        resp = _backend_get(
             f"{url}/queue-status", 
             timeout=2
         )
@@ -247,6 +262,9 @@ def proxy_request(endpoint, data, client_ip=None, task_type='unknown'):
     try:
         session = requests.Session()
         session.headers.update({'Connection': 'keep-alive'})
+        if BACKEND_TLS:
+            session.cert = BACKEND_TLS
+            session.verify = BACKEND_VERIFY
         
         response = session.post(
             f"{backend}{endpoint}", 
@@ -338,7 +356,7 @@ def queue_status():
         weight = backend['weight']
         max_model = backend.get('max_model', 'codellama:70b')
         try:
-            resp = requests.get(
+            resp = _backend_get(
                 f"{url}/queue-status", 
                 timeout=2
             )
@@ -448,7 +466,7 @@ def stop_all():
     for backend in BACKENDS:
         url = backend['url']
         try:
-            resp = requests.post(f"{url}/stop", timeout=10)
+            resp = _backend_post(f"{url}/stop", timeout=10)
             results[url] = resp.json()
         except Exception as e:
             results[url] = {'error': str(e)}
@@ -461,7 +479,7 @@ def stop_backend():
     if not url:
         return jsonify({'error': 'No backend URL provided'}), 400
     try:
-        resp = requests.post(f"{url}/stop", timeout=10)
+        resp = _backend_post(f"{url}/stop", timeout=10)
         return jsonify(resp.json())
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -633,8 +651,8 @@ def generate_image_endpoint():
     errors = []
     for b in BACKENDS:
         try:
-            requests.get(f"{b['url']}/queue-status", timeout=2)
-            resp = requests.post(f"{b['url']}/generate-image", json=data, timeout=3600)
+            _backend_get(f"{b['url']}/queue-status", timeout=2)
+            resp = _backend_post(f"{b['url']}/generate-image", json=data, timeout=3600)
             result = resp.json()
             if result.get('error'):
                 errors.append(f"{b['url']}: {result['error']}")
@@ -652,7 +670,7 @@ def image_models():
     """Proxy to any online backend"""
     for backend in BACKENDS:
         try:
-            resp = requests.get(f"{backend['url']}/image-models", timeout=5)
+            resp = _backend_get(f"{backend['url']}/image-models", timeout=5)
             return jsonify(resp.json())
         except:
             continue
@@ -664,7 +682,7 @@ def list_models():
     seen = {}
     for backend in BACKENDS:
         try:
-            resp = requests.get(f"{backend['url']}/models", timeout=5)
+            resp = _backend_get(f"{backend['url']}/models", timeout=5)
             for m in resp.json().get('models', []):
                 seen[m['name']] = m
         except:
@@ -688,7 +706,7 @@ def test_models():
     all_models = []
     for b in BACKENDS:
         try:
-            resp = requests.get(f"{b['url']}/models", timeout=5)
+            resp = _backend_get(f"{b['url']}/models", timeout=5)
             all_models = [m['name'] for m in resp.json().get('models', [])]
             if all_models:
                 break
@@ -702,7 +720,7 @@ def test_models():
         max_sizes = []
         for b in BACKENDS:
             try:
-                requests.get(f"{b['url']}/queue-status", timeout=2)
+                _backend_get(f"{b['url']}/queue-status", timeout=2)
                 max_sizes.append(model_size(b.get('max_model', '')))
             except:
                 pass
@@ -814,4 +832,14 @@ def upload():
     return jsonify(result), status
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, threaded=True)
+    ssl_ctx = None
+    cert = os.environ.get('SHELLAMA_TLS_CERT')
+    key = os.environ.get('SHELLAMA_TLS_KEY')
+    ca = os.environ.get('SHELLAMA_TLS_CA')
+    if cert and key:
+        import ssl
+        ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(cert, key)
+        if ca:
+            ssl_ctx.load_verify_locations(ca)
+    app.run(host='0.0.0.0', port=5000, threaded=True, ssl_context=ssl_ctx)

@@ -6,6 +6,13 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/usr/local/bin
+# Optional TLS for client-facing (uncomment to enable):
+#Environment="SHELLAMA_TLS_CERT=/etc/shellama/server-cert.pem"
+#Environment="SHELLAMA_TLS_KEY=/etc/shellama/server-key.pem"
+# Optional mTLS for frontend→backend (uncomment to enable):
+#Environment="SHELLAMA_BACKEND_CERT=/etc/shellama/client-cert.pem"
+#Environment="SHELLAMA_BACKEND_KEY=/etc/shellama/client-key.pem"
+#Environment="SHELLAMA_BACKEND_CA=/etc/shellama/ca-cert.pem"
 ExecStart=/export/ollama/bin/python3 /usr/local/bin/app-distributed.py
 Restart=always
 RestartSec=10

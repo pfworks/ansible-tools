@@ -8,6 +8,10 @@ Environment="OPENROUTER_API_KEY="
 Environment="OPENROUTER_MODEL=anthropic/claude-3.5-sonnet"
 Environment="OPENROUTER_URL=https://openrouter.ai/api/v1/chat/completions"
 Environment="USE_CLOUD_FALLBACK=false"
+# Optional TLS (uncomment to enable):
+#Environment="SHELLAMA_TLS_CERT=/etc/shellama/server-cert.pem"
+#Environment="SHELLAMA_TLS_KEY=/etc/shellama/server-key.pem"
+#Environment="SHELLAMA_TLS_CA=/etc/shellama/ca-cert.pem"
 ExecStart=/export/ollama/bin/python3 /usr/local/bin/app.py
 Restart=always
 RestartSec=3
