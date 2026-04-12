@@ -188,20 +188,25 @@ def ai_chat(message, model):
     """Single chat round with the backend. Returns (response, tokens, elapsed, error)."""
     global session_tokens, session_requests, session_elapsed
     try:
+        payload = {'message': message, 'model': model}
         resp = requests.post(
             f"{API_URL}/chat",
-            json={'message': message, 'model': model},
+            json=payload,
             timeout=3600
         )
         data = resp.json()
         if data.get('error'):
             return None, 0, 0, data['error']
+        data = _handle_fallback(data, '/chat', payload)
         tokens = data.get('total_tokens', 0)
         elapsed = data.get('elapsed', 0)
         session_tokens += tokens
         session_requests += 1
         session_elapsed += elapsed
-        return data.get('response', ''), tokens, elapsed, None
+        response_text = data.get('response', '')
+        if data.get('cloud_fallback'):
+            response_text += f"\n{GRAY}[cloud fallback: {data.get('cloud_model', 'cloud')}]{RESET}"
+        return response_text, tokens, elapsed, None
     except KeyboardInterrupt:
         # User hit Ctrl+C — tell backend to stop
         try:
@@ -287,6 +292,34 @@ def ai_agent(query, quiet=False):
     print(f"{GRAY}[max rounds reached | {total_elapsed:.1f}s | {total_tokens} tokens]{RESET}", file=sys.stderr)
 
 
+def _handle_fallback(data, endpoint, payload):
+    """Check if backend suggests cloud fallback, prompt user, retry if approved."""
+    if not data.get('fallback_available'):
+        return data
+    reason = data.get('fallback_reason', 'low quality')
+    model = data.get('fallback_model', 'cloud')
+    print(f"\n{YELLOW}⚠ Local model produced poor output: {reason}{RESET}", file=sys.stderr)
+    print(f"{YELLOW}  Recommended fallback: {model}{RESET}", file=sys.stderr)
+    try:
+        answer = input(f"{GRAY}Use cloud fallback? [y/N] {RESET}").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return data
+    if answer != 'y':
+        return data
+    # Retry with force_cloud
+    payload['force_cloud'] = True
+    try:
+        spinner.start()
+        resp = requests.post(f"{API_URL}{endpoint}", json=payload, timeout=3600)
+        spinner.stop()
+        return resp.json()
+    except Exception as e:
+        spinner.stop()
+        print(f"shellama: fallback failed: {e}", file=sys.stderr)
+        return data
+
+
 def ai_simple(endpoint, payload, result_key):
     """Simple one-shot API call to a backend endpoint."""
     global session_tokens, session_requests, session_elapsed
@@ -298,11 +331,17 @@ def ai_simple(endpoint, payload, result_key):
         if data.get('error'):
             print(f"shellama: {data['error']}", file=sys.stderr)
             return
+        data = _handle_fallback(data, endpoint, payload)
         session_tokens += data.get('total_tokens', 0)
         session_requests += 1
         session_elapsed += data.get('elapsed', 0)
-        print(f"{CYAN}{data.get(result_key, '')}{RESET}")
-        print(f"{GRAY}[{data.get('elapsed', 0):.1f}s | {data.get('total_tokens', 0)} tokens | {MODEL}]{RESET}", file=sys.stderr)
+        result = data.get(result_key, '')
+        if data.get('cloud_fallback'):
+            print(f"{CYAN}{result}{RESET}")
+            print(f"{GRAY}[{data.get('elapsed', 0):.1f}s | {data.get('total_tokens', 0)} tokens | {data.get('cloud_model', 'cloud')} (fallback)]{RESET}", file=sys.stderr)
+        else:
+            print(f"{CYAN}{result}{RESET}")
+            print(f"{GRAY}[{data.get('elapsed', 0):.1f}s | {data.get('total_tokens', 0)} tokens | {MODEL}]{RESET}", file=sys.stderr)
     except KeyboardInterrupt:
         spinner.stop()
         print(f"\n{GRAY}cancelled — stopping backend...{RESET}", file=sys.stderr)

@@ -95,8 +95,14 @@ def worker():
                 total_tokens += result.get('total_tokens', 0)
             
             # Check if we should fallback to cloud
-            if USE_CLOUD_FALLBACK and OPENROUTER_API_KEY and should_use_cloud(result):
-                result = fallback_to_openrouter(task, result)
+            if USE_CLOUD_FALLBACK and OPENROUTER_API_KEY:
+                force_cloud = task.get('force_cloud', False)
+                if force_cloud:
+                    result = fallback_to_openrouter(task, result)
+                elif should_use_cloud(result):
+                    result['fallback_available'] = True
+                    result['fallback_reason'] = _fallback_reason(result)
+                    result['fallback_model'] = OPENROUTER_MODEL
             
             task_results[task_id] = result
         except Exception as e:
@@ -112,14 +118,45 @@ def worker():
         save_stats()
 
 def should_use_cloud(result):
-    """Determine if response quality is low"""
+    """Determine if response quality is low enough to trigger cloud fallback."""
+    return _fallback_reason(result) is not None
+
+
+def _fallback_reason(result):
+    """Return reason string if fallback is recommended, None otherwise."""
     if result.get('error'):
-        return True
-    if result.get('playbook', '').strip() == '':
-        return True
-    if result.get('code', '').strip() == '':
-        return True
-    return False
+        return f"error: {result['error']}"
+
+    content = None
+    for key in ('playbook', 'code', 'response', 'explanation', 'analysis'):
+        val = result.get(key)
+        if val is not None:
+            content = val
+            break
+
+    if content is None:
+        return "no content in response"
+
+    stripped = content.strip()
+
+    if not stripped:
+        return "empty response"
+
+    if len(stripped) < 20 and any(k in result for k in ('playbook', 'code', 'explanation', 'analysis')):
+        return f"very short response ({len(stripped)} chars)"
+
+    prompt_tok = result.get('prompt_tokens', 0)
+    resp_tok = result.get('response_tokens', 0)
+    if prompt_tok > 50 and resp_tok < 5:
+        return f"minimal output ({resp_tok} tokens for {prompt_tok} token prompt)"
+
+    lines = stripped.split('\n')
+    if len(lines) > 10:
+        unique = set(l.strip() for l in lines if l.strip())
+        if len(unique) < len(lines) * 0.2:
+            return f"excessive repetition ({len(unique)} unique of {len(lines)} lines)"
+
+    return None
 
 def fallback_to_openrouter(task, ollama_result):
     """Call OpenRouter API as fallback (supports Claude, GPT-4, Llama, etc.)"""
@@ -175,6 +212,13 @@ def fallback_to_openrouter(task, ollama_result):
         ollama_result['error'] = None
         ollama_result['cloud_fallback'] = True
         ollama_result['cloud_model'] = OPENROUTER_MODEL
+
+        # Capture token usage from cloud response
+        usage = data.get('usage', {})
+        ollama_result['prompt_tokens'] = usage.get('prompt_tokens', 0)
+        ollama_result['response_tokens'] = usage.get('completion_tokens', 0)
+        ollama_result['total_tokens'] = usage.get('total_tokens',
+            usage.get('prompt_tokens', 0) + usage.get('completion_tokens', 0))
 
     except Exception as e:
         ollama_result['cloud_error'] = str(e)
@@ -587,7 +631,7 @@ def generate():
     task_id = str(uuid.uuid4())
     event = Event()
     summary = commands[:80].replace('\n', ' ')
-    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event,
+    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event, 'force_cloud': request.json.get('force_cloud', False),
             'client_ip': request.json.get('client_ip', request.remote_addr),
             'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'shell2ansible: {summary}'}
@@ -620,7 +664,7 @@ def upload():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event,
+    task = {'id': task_id, 'commands': commands, 'model': model, 'event': event, 'force_cloud': request.json.get('force_cloud', False),
             'client_ip': request.remote_addr, 'client_agent': request.headers.get('User-Agent', ''),
             'summary': f'upload: {commands[:80].replace(chr(10), " ")}'}
     task_queue.put(task)
@@ -648,7 +692,7 @@ def explain():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'playbook': playbook, 'model': model, 'event': event, 'type': 'explain',
+    task = {'id': task_id, 'playbook': playbook, 'model': model, 'event': event, 'force_cloud': request.json.get('force_cloud', False), 'type': 'explain',
             'client_ip': request.json.get('client_ip', request.remote_addr),
             'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'explain: {playbook[:80].replace(chr(10), " ")}'}
@@ -677,7 +721,7 @@ def generate_code_endpoint():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'description': description, 'model': model, 'event': event, 'type': 'generate_code',
+    task = {'id': task_id, 'description': description, 'model': model, 'event': event, 'force_cloud': request.json.get('force_cloud', False), 'type': 'generate_code',
             'client_ip': request.json.get('client_ip', request.remote_addr),
             'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'codegen: {description[:80].replace(chr(10), " ")}'}
@@ -706,7 +750,7 @@ def explain_code_endpoint():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'code': code, 'model': model, 'event': event, 'type': 'explain_code',
+    task = {'id': task_id, 'code': code, 'model': model, 'event': event, 'force_cloud': request.json.get('force_cloud', False), 'type': 'explain_code',
             'client_ip': request.json.get('client_ip', request.remote_addr),
             'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'explain-code: {code[:80].replace(chr(10), " ")}'}
@@ -735,7 +779,7 @@ def chat_endpoint():
     
     task_id = str(uuid.uuid4())
     event = Event()
-    task = {'id': task_id, 'message': message, 'model': model, 'event': event, 'type': 'chat',
+    task = {'id': task_id, 'message': message, 'model': model, 'event': event, 'force_cloud': request.json.get('force_cloud', False), 'type': 'chat',
             'client_ip': request.json.get('client_ip', request.remote_addr),
             'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'chat: {message[:80].replace(chr(10), " ")}'}
@@ -765,7 +809,7 @@ def analyze_endpoint():
     task_id = str(uuid.uuid4())
     event = Event()
     paths = ', '.join(f.get('path', '?') for f in files[:3])
-    task = {'id': task_id, 'files': files, 'model': model, 'event': event, 'type': 'analyze',
+    task = {'id': task_id, 'files': files, 'model': model, 'event': event, 'force_cloud': request.json.get('force_cloud', False), 'type': 'analyze',
             'client_ip': request.json.get('client_ip', request.remote_addr),
             'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'analyze: {paths}'}
@@ -799,7 +843,7 @@ def generate_image_endpoint():
     event = Event()
     task = {'id': task_id, 'prompt': prompt, 'image_model': image_model,
             'steps': steps, 'width': width, 'height': height,
-            'model': 'none', 'event': event, 'type': 'generate_image',
+            'model': 'none', 'event': event, 'force_cloud': request.json.get('force_cloud', False), 'type': 'generate_image',
             'client_ip': request.json.get('client_ip', request.remote_addr),
             'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'image: {prompt[:80]}'}

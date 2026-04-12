@@ -96,7 +96,7 @@ def periodic_save():
 load_history()
 Thread(target=periodic_save, daemon=True).start()
 
-def record_ip_tokens(ip, tokens, task_type='unknown', prompt_tokens=0, response_tokens=0):
+def record_ip_tokens(ip, tokens, task_type='unknown', prompt_tokens=0, response_tokens=0, cloud_fallback=False):
     """Record token usage for a client IP and task type"""
     with ip_token_lock:
         # Always update cumulative by_client and by_task
@@ -112,6 +112,11 @@ def record_ip_tokens(ip, tokens, task_type='unknown', prompt_tokens=0, response_
         if task_type != 'test':
             persisted_totals['prompt_tokens'] = persisted_totals.get('prompt_tokens', 0) + prompt_tokens
             persisted_totals['response_tokens'] = persisted_totals.get('response_tokens', 0) + response_tokens
+        # Track actual cloud fallback spend separately
+        if cloud_fallback:
+            persisted_totals['fallback_prompt_tokens'] = persisted_totals.get('fallback_prompt_tokens', 0) + prompt_tokens
+            persisted_totals['fallback_response_tokens'] = persisted_totals.get('fallback_response_tokens', 0) + response_tokens
+            persisted_totals['fallback_requests'] = persisted_totals.get('fallback_requests', 0) + 1
         # Record time-series entry only if there were tokens
         if tokens > 0:
             if ip not in ip_token_history:
@@ -278,11 +283,22 @@ def proxy_request(endpoint, data, client_ip=None, task_type='unknown'):
         if result.get('error') and 'result was lost' in result.get('error', ''):
             return {'error': f"Backend {backend} lost task result. Task may have completed but response was not stored."}, 500
         
+        # Auto-fallback: if backend suggests fallback and auto mode is on, retry with force_cloud
+        if result.get('fallback_available') and persisted_totals.get('auto_fallback', False):
+            data['force_cloud'] = True
+            release_backend(backend)
+            backend2 = get_available_backend(model)
+            if backend2:
+                resp2 = session.post(f"{backend2}{endpoint}", json=data, timeout=3600, stream=False)
+                result = resp2.json()
+                release_backend(backend2)
+        
         # Record tokens for this client IP
         if client_ip:
             record_ip_tokens(client_ip, result.get('total_tokens', 0), task_type,
                            prompt_tokens=result.get('prompt_tokens', 0),
-                           response_tokens=result.get('response_tokens', 0))
+                           response_tokens=result.get('response_tokens', 0),
+                           cloud_fallback=result.get('cloud_fallback', False))
         
         return result, 200
     except requests.exceptions.Timeout:
@@ -456,7 +472,8 @@ def queue_status():
         'total_requests': persisted_totals['requests'],
         'total_tokens': persisted_totals['tokens'],
         'backends': backends_info,
-        'timestamp': time.time()
+        'timestamp': time.time(),
+        'auto_fallback': persisted_totals.get('auto_fallback', False)
     })
 
 @app.route('/stop-all', methods=['POST'])
@@ -770,7 +787,7 @@ def test_models():
 
 @app.route('/cloud-costs')
 def cloud_costs_tab():
-    """Running tab: what total usage (excluding /test) would cost on cloud providers."""
+    """Running tab: hypothetical cloud costs + actual fallback costs."""
     _proj = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     if _proj not in sys.path:
         sys.path.insert(0, _proj)
@@ -779,15 +796,26 @@ def cloud_costs_tab():
     with ip_token_lock:
         p_tok = persisted_totals.get('prompt_tokens', 0)
         r_tok = persisted_totals.get('response_tokens', 0)
+        fb_p = persisted_totals.get('fallback_prompt_tokens', 0)
+        fb_r = persisted_totals.get('fallback_response_tokens', 0)
+        fb_reqs = persisted_totals.get('fallback_requests', 0)
 
-    costs, source = cloud_cost_estimates(p_tok, r_tok)
+    hypothetical, source = cloud_cost_estimates(p_tok, r_tok)
+    actual, _ = cloud_cost_estimates(fb_p, fb_r)
     return jsonify({
         'prompt_tokens': p_tok,
         'response_tokens': r_tok,
         'total_tokens': p_tok + r_tok,
-        'cloud_costs': costs,
+        'cloud_costs': hypothetical,
         'pricing_source': source,
         'note': 'Excludes tokens from /test benchmarks',
+        'fallback': {
+            'prompt_tokens': fb_p,
+            'response_tokens': fb_r,
+            'total_tokens': fb_p + fb_r,
+            'requests': fb_reqs,
+            'cloud_costs': actual,
+        },
     })
 
 @app.route('/reset-stats', methods=['POST'])
@@ -805,6 +833,9 @@ def reset_cloud_costs():
     with ip_token_lock:
         persisted_totals['prompt_tokens'] = 0
         persisted_totals['response_tokens'] = 0
+        persisted_totals['fallback_prompt_tokens'] = 0
+        persisted_totals['fallback_response_tokens'] = 0
+        persisted_totals['fallback_requests'] = 0
     save_history()
     return jsonify({'status': 'ok'})
 
@@ -816,8 +847,22 @@ def reset_all():
         persisted_totals['tokens'] = 0
         persisted_totals['prompt_tokens'] = 0
         persisted_totals['response_tokens'] = 0
+        persisted_totals['fallback_prompt_tokens'] = 0
+        persisted_totals['fallback_response_tokens'] = 0
+        persisted_totals['fallback_requests'] = 0
     save_history()
     return jsonify({'status': 'ok'})
+
+@app.route('/auto-fallback', methods=['GET', 'POST'])
+def auto_fallback_setting():
+    """Get or set auto-fallback mode. When enabled, clients skip confirmation."""
+    if request.method == 'POST':
+        val = (request.json or {}).get('enabled', False)
+        with ip_token_lock:
+            persisted_totals['auto_fallback'] = bool(val)
+        save_history()
+        return jsonify({'auto_fallback': bool(val)})
+    return jsonify({'auto_fallback': persisted_totals.get('auto_fallback', False)})
 
 @app.route('/upload', methods=['POST'])
 def upload():

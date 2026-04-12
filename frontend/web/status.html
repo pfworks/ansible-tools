@@ -56,16 +56,26 @@
 
         <div class="summary">
             <div class="section-header">
-                <div class="section-title">Cloud Cost Running Tab <span id="pricing-source" style="opacity:0.5"></span></div>
+                <div class="section-title">Hypothetical Cloud Costs <span id="pricing-source" style="opacity:0.5"></span></div>
                 <div>
                     <button class="btn" onclick="resetCloudCosts()">Clear Costs</button>
                 </div>
             </div>
-            <div style="margin:8px 0; opacity:0.7; font-size:13px;">What your total usage would cost on cloud providers (excludes benchmarks)</div>
+            <div style="margin:8px 0; opacity:0.7; font-size:13px;">What your total local usage would cost on cloud providers (excludes benchmarks)</div>
             <div style="margin-bottom:10px;">Prompt tokens: <span id="cost-prompt-tokens">-</span> &nbsp;|&nbsp; Response tokens: <span id="cost-response-tokens">-</span></div>
             <table class="cost-table">
                 <thead><tr><th>Provider</th><th style="text-align:right">Input</th><th style="text-align:right">Output</th><th style="text-align:right">Total</th></tr></thead>
                 <tbody id="cost-table-body"></tbody>
+            </table>
+        </div>
+
+        <div class="summary" id="fallback-section" style="display:none">
+            <div class="section-title" style="color:#ff8800">Actual Cloud Fallback Spend</div>
+            <div style="margin:8px 0; opacity:0.7; font-size:13px;">Real costs from cloud fallback requests (when local model produced poor output)</div>
+            <div style="margin-bottom:10px;">Requests: <span id="fb-requests">0</span> &nbsp;|&nbsp; Prompt tokens: <span id="fb-prompt-tokens">0</span> &nbsp;|&nbsp; Response tokens: <span id="fb-response-tokens">0</span></div>
+            <table class="cost-table">
+                <thead><tr><th>Provider</th><th style="text-align:right">Input</th><th style="text-align:right">Output</th><th style="text-align:right">Total</th></tr></thead>
+                <tbody id="fb-cost-table-body"></tbody>
             </table>
         </div>
 
@@ -107,6 +117,24 @@
                     tr.innerHTML = `<td>${c.provider}</td><td class="num">$${c.input_cost.toFixed(6)}</td><td class="num">$${c.output_cost.toFixed(6)}</td><td class="num">$${c.total_cost.toFixed(6)}</td>`;
                     tbody.appendChild(tr);
                 });
+                // Fallback section
+                const fb = data.fallback || {};
+                const fbSection = document.getElementById('fallback-section');
+                if ((fb.requests || 0) > 0) {
+                    fbSection.style.display = '';
+                    document.getElementById('fb-requests').textContent = fb.requests;
+                    document.getElementById('fb-prompt-tokens').textContent = (fb.prompt_tokens || 0).toLocaleString();
+                    document.getElementById('fb-response-tokens').textContent = (fb.response_tokens || 0).toLocaleString();
+                    const fbBody = document.getElementById('fb-cost-table-body');
+                    fbBody.innerHTML = '';
+                    (fb.cloud_costs || []).forEach(c => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${c.provider}</td><td class="num">$${c.input_cost.toFixed(6)}</td><td class="num">$${c.output_cost.toFixed(6)}</td><td class="num">$${c.total_cost.toFixed(6)}</td>`;
+                        fbBody.appendChild(tr);
+                    });
+                } else {
+                    fbSection.style.display = 'none';
+                }
             }).catch(() => {});
         }
         function resetStats() {
