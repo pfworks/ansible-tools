@@ -14,18 +14,14 @@
         .nav a:hover { background: #00ff0033; }
         .summary { background: #2b2b2b; border: 2px solid #00ff00; padding: 20px; margin: 20px 0; border-radius: 5px; }
         .summary-item { display: inline-block; margin: 10px 20px; font-size: 18px; }
-        .cost-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .cost-table th, .cost-table td { text-align: left; padding: 6px 12px; border-bottom: 1px solid #333; }
-        .cost-table th { color: #00ff00; opacity: 0.7; }
-        .cost-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-        .cheapest td { color: #44ff44; }
-        .costliest td { color: #ff4444; }
         .section-header { display: flex; justify-content: space-between; align-items: center; }
-        .section-title { font-size: 16px; opacity: 0.8; }
         .btn { background: #2b2b2b; color: #00ff00; border: 1px solid #00ff00; padding: 4px 12px; cursor: pointer; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 12px; margin-left: 5px; }
         .btn:hover { background: #00ff0033; }
         .btn.danger { border-color: #ff4444; color: #ff4444; }
         .btn.danger:hover { background: #ff444433; }
+        .toggle { cursor: pointer; font-size: 14px; padding: 6px 16px; border-radius: 3px; border: 1px solid; font-family: 'Courier New', monospace; }
+        .toggle.on { background: #ff880033; border-color: #ff8800; color: #ff8800; }
+        .toggle.off { background: #2b2b2b; border-color: #555; color: #555; }
         .refresh-info { text-align: center; margin-top: 20px; font-size: 14px; opacity: 0.7; }
         a { color: #00ff00; }
     </style>
@@ -33,11 +29,11 @@
 <body>
     <div class="container">
         <h1>sheLLaMa - System Status</h1>
-
         <div class="nav">
             <a href="/status" class="active">Overview</a>
             <a href="/backends">Backends</a>
             <a href="/stats">Stats</a>
+            <a href="/costs">Costs</a>
         </div>
 
         <div class="summary">
@@ -56,37 +52,21 @@
 
         <div class="summary">
             <div class="section-header">
-                <div class="section-title">Hypothetical Cloud Costs <span id="pricing-source" style="opacity:0.5"></span></div>
                 <div>
-                    <button class="btn" onclick="resetCloudCosts()">Clear Costs</button>
+                    <span style="font-size:16px">Cloud Fallback:</span>
+                    <span id="fallback-toggle" class="toggle off" onclick="toggleFallback()">OFF</span>
+                    <span style="opacity:0.5; font-size:12px; margin-left:10px;">When ON, poor local responses auto-retry via cloud without client confirmation</span>
                 </div>
             </div>
-            <div style="margin:8px 0; opacity:0.7; font-size:13px;">What your total local usage would cost on cloud providers (excludes benchmarks)</div>
-            <div style="margin-bottom:10px;">Prompt tokens: <span id="cost-prompt-tokens">-</span> &nbsp;|&nbsp; Response tokens: <span id="cost-response-tokens">-</span></div>
-            <table class="cost-table">
-                <thead><tr><th>Provider</th><th style="text-align:right">Input</th><th style="text-align:right">Output</th><th style="text-align:right">Total</th></tr></thead>
-                <tbody id="cost-table-body"></tbody>
-            </table>
-        </div>
-
-        <div class="summary" id="fallback-section" style="display:none">
-            <div class="section-title" style="color:#ff8800">Actual Cloud Fallback Spend</div>
-            <div style="margin:8px 0; opacity:0.7; font-size:13px;">Real costs from cloud fallback requests (when local model produced poor output)</div>
-            <div style="margin-bottom:10px;">Requests: <span id="fb-requests">0</span> &nbsp;|&nbsp; Prompt tokens: <span id="fb-prompt-tokens">0</span> &nbsp;|&nbsp; Response tokens: <span id="fb-response-tokens">0</span></div>
-            <table class="cost-table">
-                <thead><tr><th>Provider</th><th style="text-align:right">Input</th><th style="text-align:right">Output</th><th style="text-align:right">Total</th></tr></thead>
-                <tbody id="fb-cost-table-body"></tbody>
-            </table>
         </div>
 
         <div style="text-align:center; margin: 20px 0;">
             <button class="btn danger" onclick="resetAll()">Clear All Stats &amp; Costs</button>
         </div>
-
-        <div class="refresh-info">Auto-refreshing every 2 seconds (costs every 10 seconds)</div>
+        <div class="refresh-info">Auto-refreshing every 2 seconds</div>
     </div>
-
     <script>
+        let autoFallback = false;
         function updateStatus() {
             fetch('/queue-status').then(r => r.json()).then(data => {
                 document.getElementById('total-queue').textContent = data.queue_size;
@@ -94,68 +74,27 @@
                 document.getElementById('total-backends').textContent = data.total_backends;
                 document.getElementById('total-requests').textContent = (data.total_requests || 0).toLocaleString();
                 document.getElementById('total-tokens').textContent = (data.total_tokens || 0).toLocaleString();
+                autoFallback = data.auto_fallback || false;
+                const el = document.getElementById('fallback-toggle');
+                el.textContent = autoFallback ? 'ON' : 'OFF';
+                el.className = 'toggle ' + (autoFallback ? 'on' : 'off');
             }).catch(() => {});
         }
-        function updateCosts() {
-            fetch('/cloud-costs').then(r => r.json()).then(data => {
-                document.getElementById('cost-prompt-tokens').textContent = (data.prompt_tokens || 0).toLocaleString();
-                document.getElementById('cost-response-tokens').textContent = (data.response_tokens || 0).toLocaleString();
-                document.getElementById('pricing-source').textContent = '(' + (data.pricing_source || 'unknown') + ')';
-                const tbody = document.getElementById('cost-table-body');
-                tbody.innerHTML = '';
-                const costs = data.cloud_costs || [];
-                let minIdx = 0, maxIdx = 0;
-                costs.forEach((c, i) => {
-                    if (c.total_cost < costs[minIdx].total_cost) minIdx = i;
-                    if (c.total_cost > costs[maxIdx].total_cost) maxIdx = i;
-                });
-                const hasTokens = (data.prompt_tokens || 0) + (data.response_tokens || 0) > 0;
-                costs.forEach((c, i) => {
-                    const tr = document.createElement('tr');
-                    if (hasTokens && i === minIdx) tr.className = 'cheapest';
-                    if (hasTokens && i === maxIdx) tr.className = 'costliest';
-                    tr.innerHTML = `<td>${c.provider}</td><td class="num">$${c.input_cost.toFixed(6)}</td><td class="num">$${c.output_cost.toFixed(6)}</td><td class="num">$${c.total_cost.toFixed(6)}</td>`;
-                    tbody.appendChild(tr);
-                });
-                // Fallback section
-                const fb = data.fallback || {};
-                const fbSection = document.getElementById('fallback-section');
-                if ((fb.requests || 0) > 0) {
-                    fbSection.style.display = '';
-                    document.getElementById('fb-requests').textContent = fb.requests;
-                    document.getElementById('fb-prompt-tokens').textContent = (fb.prompt_tokens || 0).toLocaleString();
-                    document.getElementById('fb-response-tokens').textContent = (fb.response_tokens || 0).toLocaleString();
-                    const fbBody = document.getElementById('fb-cost-table-body');
-                    fbBody.innerHTML = '';
-                    (fb.cloud_costs || []).forEach(c => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `<td>${c.provider}</td><td class="num">$${c.input_cost.toFixed(6)}</td><td class="num">$${c.output_cost.toFixed(6)}</td><td class="num">$${c.total_cost.toFixed(6)}</td>`;
-                        fbBody.appendChild(tr);
-                    });
-                } else {
-                    fbSection.style.display = 'none';
-                }
-            }).catch(() => {});
+        function toggleFallback() {
+            fetch('/auto-fallback', {method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({enabled: !autoFallback})
+            }).then(() => updateStatus());
         }
         function resetStats() {
-            if (prompt('Type DELETE to clear total requests and tokens:') === 'DELETE') {
+            if (prompt('Type DELETE to clear total requests and tokens:') === 'DELETE')
                 fetch('/reset-stats', {method:'POST'}).then(() => updateStatus());
-            }
-        }
-        function resetCloudCosts() {
-            if (prompt('Type DELETE to clear cloud cost running tab:') === 'DELETE') {
-                fetch('/reset-cloud-costs', {method:'POST'}).then(() => updateCosts());
-            }
         }
         function resetAll() {
-            if (prompt('Type DELETE to clear ALL stats and cloud costs:') === 'DELETE') {
-                fetch('/reset-all', {method:'POST'}).then(() => { updateStatus(); updateCosts(); });
-            }
+            if (prompt('Type DELETE to clear ALL stats and cloud costs:') === 'DELETE')
+                fetch('/reset-all', {method:'POST'}).then(() => updateStatus());
         }
         updateStatus();
-        updateCosts();
         setInterval(updateStatus, 2000);
-        setInterval(updateCosts, 10000);
     </script>
 </body>
 </html>

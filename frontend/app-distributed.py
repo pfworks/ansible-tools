@@ -121,7 +121,9 @@ def record_ip_tokens(ip, tokens, task_type='unknown', prompt_tokens=0, response_
         if tokens > 0:
             if ip not in ip_token_history:
                 ip_token_history[ip] = []
-            ip_token_history[ip].append({'timestamp': time.time(), 'tokens': tokens, 'task': task_type})
+            ip_token_history[ip].append({'timestamp': time.time(), 'tokens': tokens, 'task': task_type,
+                                          'prompt_tokens': prompt_tokens, 'response_tokens': response_tokens,
+                                          'cloud_fallback': cloud_fallback})
             if len(ip_token_history[ip]) > IP_HISTORY_MAX:
                 ip_token_history[ip] = ip_token_history[ip][-IP_HISTORY_MAX:]
 
@@ -359,6 +361,10 @@ def backends_page():
 @app.route('/stats')
 def stats_page():
     return send_from_directory('/export/html', 'stats.html')
+
+@app.route('/costs')
+def costs_page():
+    return send_from_directory('/export/html', 'costs.html')
 
 @app.route('/queue-status')
 def queue_status():
@@ -852,6 +858,54 @@ def reset_all():
         persisted_totals['fallback_requests'] = 0
     save_history()
     return jsonify({'status': 'ok'})
+
+@app.route('/cost-history')
+def cost_history():
+    """Return token totals filtered by time range for cost calculations."""
+    _proj = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+    if _proj not in sys.path:
+        sys.path.insert(0, _proj)
+    from shared.constants import cloud_cost_estimates
+
+    since = request.args.get('since', '0')
+    until = request.args.get('until', '')
+    try:
+        since_ts = float(since)
+    except:
+        since_ts = 0
+    until_ts = float(until) if until else time.time()
+
+    p_tok = r_tok = fb_p = fb_r = fb_reqs = total_reqs = 0
+    with ip_token_lock:
+        for ip, entries in ip_token_history.items():
+            for e in entries:
+                ts = e.get('timestamp', 0)
+                if ts < since_ts or ts > until_ts:
+                    continue
+                if e.get('task') == 'test':
+                    continue
+                pt = e.get('prompt_tokens', 0)
+                rt = e.get('response_tokens', 0)
+                p_tok += pt
+                r_tok += rt
+                total_reqs += 1
+                if e.get('cloud_fallback'):
+                    fb_p += pt
+                    fb_r += rt
+                    fb_reqs += 1
+
+    hypothetical, source = cloud_cost_estimates(p_tok, r_tok)
+    actual, _ = cloud_cost_estimates(fb_p, fb_r)
+    return jsonify({
+        'since': since_ts, 'until': until_ts,
+        'requests': total_reqs,
+        'prompt_tokens': p_tok, 'response_tokens': r_tok, 'total_tokens': p_tok + r_tok,
+        'cloud_costs': hypothetical, 'pricing_source': source,
+        'fallback': {
+            'requests': fb_reqs, 'prompt_tokens': fb_p, 'response_tokens': fb_r,
+            'total_tokens': fb_p + fb_r, 'cloud_costs': actual,
+        },
+    })
 
 @app.route('/auto-fallback', methods=['GET', 'POST'])
 def auto_fallback_setting():

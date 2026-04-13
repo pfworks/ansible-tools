@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>sheLLaMa - Costs</title>
+    <style>
+        body { font-family: 'Courier New', monospace; background: #1e1e1e; color: #00ff00; padding: 20px; margin: 0; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align: center; border-bottom: 2px solid #00ff00; padding-bottom: 10px; }
+        .nav { text-align: center; margin: 20px 0; }
+        .nav a { color: #00ff00; border: 2px solid #00ff00; padding: 10px 24px; margin: 0 5px; text-decoration: none; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 16px; }
+        .nav a.active { background: #00ff00; color: #000; }
+        .nav a:hover { background: #00ff0033; }
+        a { color: #00ff00; }
+        .summary { background: #2b2b2b; border: 2px solid #00ff00; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .section-title { font-size: 16px; opacity: 0.8; }
+        .cost-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .cost-table th, .cost-table td { text-align: left; padding: 6px 12px; border-bottom: 1px solid #333; }
+        .cost-table th { opacity: 0.7; }
+        .cost-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .cheapest td { color: #44ff44; }
+        .costliest td { color: #ff4444; }
+        .range-btn { background: #2b2b2b; color: #00ff00; border: 2px solid #00ff00; padding: 8px 16px; margin: 0 3px; cursor: pointer; border-radius: 3px; font-family: 'Courier New', monospace; }
+        .range-btn.active { background: #00ff00; color: #000; }
+        .range-selector { text-align: center; margin: 15px 0; }
+        .btn { background: #2b2b2b; color: #00ff00; border: 1px solid #00ff00; padding: 4px 12px; cursor: pointer; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 12px; }
+        .btn:hover { background: #00ff0033; }
+        .btn.danger { border-color: #ff4444; color: #ff4444; }
+        .btn.danger:hover { background: #ff444433; }
+        input[type=date] { background: #1e1e1e; color: #00ff00; border: 1px solid #00ff00; padding: 6px; border-radius: 3px; font-family: 'Courier New', monospace; }
+        .custom-range { display: none; text-align: center; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>sheLLaMa - Cost Tracking</h1>
+        <div class="nav">
+            <a href="/status">Overview</a>
+            <a href="/backends">Backends</a>
+            <a href="/stats">Stats</a>
+            <a href="/costs" class="active">Costs</a>
+        </div>
+
+        <div class="range-selector">
+            <button class="range-btn" onclick="setRange('day')">Day</button>
+            <button class="range-btn" onclick="setRange('week')">Week</button>
+            <button class="range-btn" onclick="setRange('month')">Month</button>
+            <button class="range-btn" onclick="setRange('year')">Year</button>
+            <button class="range-btn active" onclick="setRange('all')">All Time</button>
+            <button class="range-btn" onclick="setRange('custom')">Custom</button>
+        </div>
+        <div class="custom-range" id="custom-range">
+            <input type="date" id="date-from"> to <input type="date" id="date-to">
+            <button class="btn" onclick="applyCustom()">Apply</button>
+        </div>
+
+        <div id="range-label" style="text-align:center; opacity:0.5; margin-bottom:10px;"></div>
+
+        <div class="summary">
+            <div class="section-header">
+                <div class="section-title">Hypothetical Cloud Costs <span id="pricing-source" style="opacity:0.5"></span></div>
+                <div><button class="btn" onclick="resetCosts()">Clear Costs</button></div>
+            </div>
+            <div style="margin:8px 0; opacity:0.7; font-size:13px;">What your local usage would cost on cloud providers (excludes benchmarks)</div>
+            <div style="margin-bottom:10px;">Requests: <span id="h-requests">-</span> &nbsp;|&nbsp; Prompt: <span id="h-prompt">-</span> &nbsp;|&nbsp; Response: <span id="h-response">-</span> &nbsp;|&nbsp; Total tokens: <span id="h-total">-</span></div>
+            <table class="cost-table">
+                <thead><tr><th>Provider</th><th style="text-align:right">Input</th><th style="text-align:right">Output</th><th style="text-align:right">Total</th></tr></thead>
+                <tbody id="h-table"></tbody>
+            </table>
+        </div>
+
+        <div class="summary" id="fb-section" style="display:none">
+            <div class="section-title" style="color:#ff8800">Actual Cloud Fallback Spend</div>
+            <div style="margin:8px 0; opacity:0.7; font-size:13px;">Real costs from cloud fallback requests</div>
+            <div style="margin-bottom:10px;">Requests: <span id="fb-requests">0</span> &nbsp;|&nbsp; Prompt: <span id="fb-prompt">0</span> &nbsp;|&nbsp; Response: <span id="fb-response">0</span> &nbsp;|&nbsp; Total tokens: <span id="fb-total">0</span></div>
+            <table class="cost-table">
+                <thead><tr><th>Provider</th><th style="text-align:right">Input</th><th style="text-align:right">Output</th><th style="text-align:right">Total</th></tr></thead>
+                <tbody id="fb-table"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let currentRange = 'all';
+
+        function rangeToSince(range) {
+            if (range === 'all') return 0;
+            const now = Date.now() / 1000;
+            const offsets = { day: 86400, week: 604800, month: 2592000, year: 31536000 };
+            return now - (offsets[range] || 0);
+        }
+
+        function setRange(range) {
+            currentRange = range;
+            document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('custom-range').style.display = range === 'custom' ? 'block' : 'none';
+            if (range !== 'custom') loadCosts();
+        }
+
+        function applyCustom() {
+            currentRange = 'custom';
+            loadCosts();
+        }
+
+        function fillTable(tbodyId, costs, hasTokens) {
+            const tbody = document.getElementById(tbodyId);
+            tbody.innerHTML = '';
+            let minIdx = 0, maxIdx = 0;
+            costs.forEach((c, i) => {
+                if (c.total_cost < costs[minIdx].total_cost) minIdx = i;
+                if (c.total_cost > costs[maxIdx].total_cost) maxIdx = i;
+            });
+            costs.forEach((c, i) => {
+                const tr = document.createElement('tr');
+                if (hasTokens && i === minIdx) tr.className = 'cheapest';
+                if (hasTokens && i === maxIdx) tr.className = 'costliest';
+                tr.innerHTML = `<td>${c.provider}</td><td class="num">$${c.input_cost.toFixed(6)}</td><td class="num">$${c.output_cost.toFixed(6)}</td><td class="num">$${c.total_cost.toFixed(6)}</td>`;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function loadCosts() {
+            let url;
+            if (currentRange === 'all') {
+                url = '/cloud-costs';
+            } else if (currentRange === 'custom') {
+                const from = document.getElementById('date-from').value;
+                const to = document.getElementById('date-to').value;
+                const since = from ? new Date(from).getTime() / 1000 : 0;
+                const until = to ? new Date(to + 'T23:59:59').getTime() / 1000 : '';
+                url = `/cost-history?since=${since}&until=${until}`;
+            } else {
+                url = `/cost-history?since=${rangeToSince(currentRange)}`;
+            }
+
+            const label = document.getElementById('range-label');
+            if (currentRange === 'all') label.textContent = 'All time (cumulative)';
+            else if (currentRange === 'custom') label.textContent = 'Custom range';
+            else label.textContent = 'Last ' + currentRange;
+
+            fetch(url).then(r => r.json()).then(data => {
+                document.getElementById('pricing-source').textContent = '(' + (data.pricing_source || '') + ')';
+                document.getElementById('h-requests').textContent = (data.requests || 0).toLocaleString();
+                document.getElementById('h-prompt').textContent = (data.prompt_tokens || 0).toLocaleString();
+                document.getElementById('h-response').textContent = (data.response_tokens || 0).toLocaleString();
+                document.getElementById('h-total').textContent = (data.total_tokens || 0).toLocaleString();
+                fillTable('h-table', data.cloud_costs || [], (data.total_tokens || 0) > 0);
+
+                const fb = data.fallback || {};
+                const fbSection = document.getElementById('fb-section');
+                if ((fb.requests || 0) > 0) {
+                    fbSection.style.display = '';
+                    document.getElementById('fb-requests').textContent = fb.requests;
+                    document.getElementById('fb-prompt').textContent = (fb.prompt_tokens || 0).toLocaleString();
+                    document.getElementById('fb-response').textContent = (fb.response_tokens || 0).toLocaleString();
+                    document.getElementById('fb-total').textContent = (fb.total_tokens || 0).toLocaleString();
+                    fillTable('fb-table', fb.cloud_costs || [], (fb.total_tokens || 0) > 0);
+                } else {
+                    fbSection.style.display = 'none';
+                }
+            }).catch(() => {});
+        }
+
+        function resetCosts() {
+            if (prompt('Type DELETE to clear cloud cost data:') === 'DELETE')
+                fetch('/reset-cloud-costs', {method:'POST'}).then(() => loadCosts());
+        }
+
+        loadCosts();
+        setInterval(loadCosts, 10000);
+    </script>
+</body>
+</html>
