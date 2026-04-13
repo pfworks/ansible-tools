@@ -14,6 +14,7 @@ API_URL = os.environ.get('SHELLAMA_API', os.environ.get('ANSIBLE_TOOLS_API', 'ht
 MODEL = os.environ.get('SHELLAMA_MODEL', os.environ.get('ANSIBLE_TOOLS_MODEL', 'qwen2.5-coder:7b'))
 TRIGGER = ','
 HISTFILE = os.path.expanduser('~/.shellama_history')
+DOWNLOAD_DIR = os.environ.get('SHELLAMA_DOWNLOAD_DIR', '')
 MAX_ROUNDS = 10
 
 # Session usage tracking
@@ -378,7 +379,20 @@ def ai_image(prompt):
         session_requests += 1
         session_elapsed += data.get('elapsed', 0)
         img_data = base64.b64decode(data['image'])
-        outfile = f"generated_{int(__import__('time').time())}.png"
+        default_name = f"generated_{int(__import__('time').time())}.png"
+        if DOWNLOAD_DIR:
+            os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+            default_path = os.path.join(DOWNLOAD_DIR, default_name)
+        else:
+            default_path = default_name
+        try:
+            custom = input(f"{GRAY}Save as [{default_path}]: {RESET}").strip()
+        except (EOFError, KeyboardInterrupt):
+            custom = ''
+        outfile = custom if custom else default_path
+        outdir = os.path.dirname(outfile)
+        if outdir:
+            os.makedirs(outdir, exist_ok=True)
         with open(outfile, 'wb') as f:
             f.write(img_data)
         print(f"{CYAN}{os.path.abspath(outfile)}{RESET}")

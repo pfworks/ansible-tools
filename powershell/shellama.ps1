@@ -157,7 +157,13 @@ function ,img {
     try {
         $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/generate-image" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 3600
         if ($resp.image) {
-            $outfile = "$PWD\generated_$([int](Get-Date -UFormat %s)).png"
+            $dlDir = if ($env:SHELLAMA_DOWNLOAD_DIR) { $env:SHELLAMA_DOWNLOAD_DIR } else { $PWD }
+            if (!(Test-Path $dlDir)) { New-Item -ItemType Directory -Path $dlDir -Force | Out-Null }
+            $defaultFile = "$dlDir\generated_$([int](Get-Date -UFormat %s)).png"
+            $custom = Read-Host "Save as [$defaultFile]"
+            $outfile = if ($custom) { $custom } else { $defaultFile }
+            $outDir = [IO.Path]::GetDirectoryName($outfile)
+            if ($outDir -and !(Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
             [IO.File]::WriteAllBytes($outfile, [Convert]::FromBase64String($resp.image))
             Write-Host "Saved: $outfile" -ForegroundColor Cyan
         }
