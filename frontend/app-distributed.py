@@ -156,7 +156,8 @@ def load_backends():
     config_file = os.path.join(os.path.dirname(__file__), 'backends.json')
     try:
         with open(config_file, 'r') as f:
-            backends = json.load(f)['backends']
+            cfg = json.load(f)
+            backends = cfg['backends']
             if backends and isinstance(backends[0], str):
                 return [{'url': url, 'weight': 1, 'max_model': 'codellama:70b', 'tasks': ['all']} for url in backends]
             for b in backends:
@@ -168,12 +169,32 @@ def load_backends():
     except:
         return [{'url': 'http://localhost:5001', 'weight': 1, 'max_model': 'codellama:70b', 'tasks': ['all']}]
 
+def load_model_aliases():
+    config_file = os.path.join(os.path.dirname(__file__), 'backends.json')
+    try:
+        with open(config_file, 'r') as f:
+            return json.load(f).get('model_aliases', {})
+    except:
+        return {}
+
 def save_backends():
     config_file = os.path.join(os.path.dirname(__file__), 'backends.json')
+    try:
+        with open(config_file, 'r') as f:
+            cfg = json.load(f)
+    except:
+        cfg = {}
+    cfg['backends'] = BACKENDS
+    cfg['model_aliases'] = MODEL_ALIASES
     with open(config_file, 'w') as f:
-        json.dump({'backends': BACKENDS}, f, indent=2)
+        json.dump(cfg, f, indent=2)
 
 BACKENDS = load_backends()
+MODEL_ALIASES = load_model_aliases()
+
+def resolve_model(model):
+    """Resolve model alias to actual model name."""
+    return MODEL_ALIASES.get(model, model)
 
 # Model size ordering for comparison
 MODEL_SIZES = {
@@ -342,7 +363,8 @@ def _cache_key(endpoint, data):
 
 def proxy_request(endpoint, data, client_ip=None, task_type='unknown'):
     """Send request to available backend with keepalive"""
-    model = data.get('model', 'codellama:13b')
+    model = resolve_model(data.get('model', 'codellama:13b'))
+    data['model'] = model  # pass resolved name to backend
 
     # Check prompt cache
     ck = _cache_key(endpoint, data) if CACHE_TTL > 0 else None
@@ -610,7 +632,8 @@ def queue_status():
         'total_tokens': persisted_totals['tokens'],
         'backends': backends_info,
         'timestamp': time.time(),
-        'auto_fallback': persisted_totals.get('auto_fallback', False)
+        'auto_fallback': persisted_totals.get('auto_fallback', False),
+        'model_aliases': MODEL_ALIASES
     })
 
 @app.route('/stop-all', methods=['POST'])
@@ -683,7 +706,7 @@ def explain_code_endpoint():
 @require_auth
 def chat_endpoint():
     message = request.json.get('message', '')
-    model = request.json.get('model', 'codellama:13b')
+    model = resolve_model(request.json.get('model', 'codellama:13b'))
     conv_id = request.json.get('conversation_id')
     system_prompt = request.json.get('system_prompt')
 
@@ -1227,6 +1250,35 @@ def api_keys_revoke():
                 json.dump(cfg, f, indent=2)
             return jsonify({'status': 'ok', 'revoked': name})
     return jsonify({'error': 'Key not found'}), 404
+
+@app.route('/api/model-aliases', methods=['GET', 'POST'])
+def api_model_aliases():
+    """Get or update model aliases."""
+    global MODEL_ALIASES
+    if request.method == 'POST':
+        # Require admin (API key or SSO)
+        if auth_enabled():
+            key = request.headers.get('X-API-Key') or request.headers.get('Authorization', '').replace('Bearer ', '')
+            if key:
+                from shared.auth import get_api_key_info
+                info = get_api_key_info(key)
+                if not info or info.get('role') != 'admin':
+                    return jsonify({'error': 'Admin access required'}), 403
+            elif sso_enabled():
+                if get_web_role() != 'admin':
+                    return jsonify({'error': 'Admin access required'}), 403
+            else:
+                return jsonify({'error': 'Admin access required'}), 403
+        data = request.json or {}
+        if 'aliases' in data:
+            MODEL_ALIASES = data['aliases']
+        elif 'set' in data:
+            MODEL_ALIASES[data['set']['alias']] = data['set']['model']
+        elif 'delete' in data:
+            MODEL_ALIASES.pop(data['delete'], None)
+        save_backends()
+        return jsonify({'model_aliases': MODEL_ALIASES})
+    return jsonify({'model_aliases': MODEL_ALIASES})
 
 @app.route('/api/backends', methods=['GET', 'POST'])
 @require_admin
