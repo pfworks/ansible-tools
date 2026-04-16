@@ -107,7 +107,7 @@ def periodic_save():
 load_history()
 Thread(target=periodic_save, daemon=True).start()
 
-def record_ip_tokens(ip, tokens, task_type='unknown', prompt_tokens=0, response_tokens=0, cloud_fallback=False, key_name='anonymous'):
+def record_ip_tokens(ip, tokens, task_type='unknown', prompt_tokens=0, response_tokens=0, cloud_fallback=False, key_name='anonymous', cached=False):
     """Record token usage for a client IP and task type"""
     with ip_token_lock:
         # Always update cumulative by_client and by_task
@@ -137,13 +137,17 @@ def record_ip_tokens(ip, tokens, task_type='unknown', prompt_tokens=0, response_
             by_key[key_name]['tokens'] += tokens
             by_key[key_name]['prompt_tokens'] += prompt_tokens
             by_key[key_name]['response_tokens'] += response_tokens
+        # Track cached responses separately
+        if cached:
+            persisted_totals['cached_requests'] = persisted_totals.get('cached_requests', 0) + 1
+            persisted_totals['cached_tokens'] = persisted_totals.get('cached_tokens', 0) + tokens
         # Record time-series entry only if there were tokens
-        if tokens > 0:
+        if tokens > 0 or cached:
             if ip not in ip_token_history:
                 ip_token_history[ip] = []
             ip_token_history[ip].append({'timestamp': time.time(), 'tokens': tokens, 'task': task_type,
                                           'prompt_tokens': prompt_tokens, 'response_tokens': response_tokens,
-                                          'cloud_fallback': cloud_fallback})
+                                          'cloud_fallback': cloud_fallback, 'cached': cached})
             if len(ip_token_history[ip]) > IP_HISTORY_MAX:
                 ip_token_history[ip] = ip_token_history[ip][-IP_HISTORY_MAX:]
 
@@ -892,6 +896,8 @@ def cloud_costs_tab():
         fb_p = persisted_totals.get('fallback_prompt_tokens', 0)
         fb_r = persisted_totals.get('fallback_response_tokens', 0)
         fb_reqs = persisted_totals.get('fallback_requests', 0)
+        c_reqs = persisted_totals.get('cached_requests', 0)
+        c_tok = persisted_totals.get('cached_tokens', 0)
 
     hypothetical, source = cloud_cost_estimates(p_tok, r_tok)
     actual, _ = cloud_cost_estimates(fb_p, fb_r)
@@ -908,6 +914,10 @@ def cloud_costs_tab():
             'total_tokens': fb_p + fb_r,
             'requests': fb_reqs,
             'cloud_costs': actual,
+        },
+        'cached': {
+            'requests': c_reqs,
+            'tokens_saved': c_tok,
         },
     })
 
@@ -931,6 +941,8 @@ def reset_cloud_costs():
         persisted_totals['fallback_prompt_tokens'] = 0
         persisted_totals['fallback_response_tokens'] = 0
         persisted_totals['fallback_requests'] = 0
+        persisted_totals['cached_requests'] = 0
+        persisted_totals['cached_tokens'] = 0
     save_history()
     return jsonify({'status': 'ok'})
 
@@ -946,6 +958,8 @@ def reset_all():
         persisted_totals['fallback_prompt_tokens'] = 0
         persisted_totals['fallback_response_tokens'] = 0
         persisted_totals['fallback_requests'] = 0
+        persisted_totals['cached_requests'] = 0
+        persisted_totals['cached_tokens'] = 0
     save_history()
     return jsonify({'status': 'ok'})
 
@@ -965,7 +979,7 @@ def cost_history():
         since_ts = 0
     until_ts = float(until) if until else time.time()
 
-    p_tok = r_tok = fb_p = fb_r = fb_reqs = total_reqs = 0
+    p_tok = r_tok = fb_p = fb_r = fb_reqs = total_reqs = c_reqs = c_tok = 0
     with ip_token_lock:
         for ip, entries in ip_token_history.items():
             for e in entries:
@@ -983,6 +997,9 @@ def cost_history():
                     fb_p += pt
                     fb_r += rt
                     fb_reqs += 1
+                if e.get('cached'):
+                    c_reqs += 1
+                    c_tok += e.get('tokens', 0)
 
     hypothetical, source = cloud_cost_estimates(p_tok, r_tok)
     actual, _ = cloud_cost_estimates(fb_p, fb_r)
@@ -994,6 +1011,10 @@ def cost_history():
         'fallback': {
             'requests': fb_reqs, 'prompt_tokens': fb_p, 'response_tokens': fb_r,
             'total_tokens': fb_p + fb_r, 'cloud_costs': actual,
+        },
+        'cached': {
+            'requests': c_reqs,
+            'tokens_saved': c_tok,
         },
     })
 
