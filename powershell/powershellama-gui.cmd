@@ -117,6 +117,7 @@ function Invoke-ShellamaAPI {
     $script:activeRequest = $req
     $req.Method = "POST"
     $req.ContentType = "application/json"
+    if ($script:SHELLAMA_API_KEY) { $req.Headers.Add("X-API-Key", $script:SHELLAMA_API_KEY) }
     $req.Timeout = 3600000
     $req.ReadWriteTimeout = 3600000
     $reqStream = $null

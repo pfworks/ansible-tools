@@ -23,9 +23,10 @@ $script:MaxRounds = 10
 
 function Invoke-ShellamaChat {
     param([string]$Message, [string]$Model = $script:SHELLAMA_MODEL)
-    $body = @{ message = $Message; model = $Model } | ConvertTo-Json -Depth 10
+    $body = @{ message = $Message; model = $Model; conversation_id = $script:SHELLAMA_CONV_ID } | ConvertTo-Json -Depth 10
+    $headers = Get-ShellamaHeaders
     try {
-        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/chat" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 3600
+        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/chat" -Method Post -Body $body -Headers $headers -TimeoutSec 3600
         return $resp
     } catch {
         Write-Host "shellama: $_" -ForegroundColor Red
@@ -95,8 +96,9 @@ function Invoke-ShellamaAgent {
 function Invoke-ShellamaSimple {
     param([string]$Endpoint, [hashtable]$Body, [string]$ResultKey)
     $json = $Body | ConvertTo-Json -Depth 10
+    $headers = Get-ShellamaHeaders
     try {
-        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)$Endpoint" -Method Post -Body $json -ContentType "application/json" -TimeoutSec 3600
+        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)$Endpoint" -Method Post -Body $json -Headers $headers -TimeoutSec 3600
         if ($resp.error) { Write-Host "shellama: $($resp.error)" -ForegroundColor Red; return }
         $script:SessionTokens += ($resp.total_tokens -as [int])
         $script:SessionRequests++
@@ -155,7 +157,7 @@ function ,img {
     $st = if ($im -match "turbo") { 4 } else { 20 }
     $body = @{ prompt = $prompt; image_model = $im; steps = $st; width = 512; height = 512 } | ConvertTo-Json
     try {
-        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/generate-image" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 3600
+        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/generate-image" -Method Post -Body $body -Headers (Get-ShellamaHeaders) -TimeoutSec 3600
         if ($resp.image) {
             $dlDir = if ($env:SHELLAMA_DOWNLOAD_DIR) { $env:SHELLAMA_DOWNLOAD_DIR } else { $PWD }
             if (!(Test-Path $dlDir)) { New-Item -ItemType Directory -Path $dlDir -Force | Out-Null }
@@ -174,7 +176,7 @@ function ,test {
     $testArgs = $args -join ' '
     $body = @{ model = if ($testArgs) { $testArgs } else { "all" } } | ConvertTo-Json
     try {
-        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/test" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 3600
+        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/test" -Method Post -Body $body -Headers (Get-ShellamaHeaders) -TimeoutSec 3600
         if ($resp.error) { Write-Host "shellama: $($resp.error)" -ForegroundColor Red; return }
         if ($resp.skipped) { Write-Host "Skipped (too large): $($resp.skipped -join ', ')" -ForegroundColor DarkGray }
         $results = $resp.results | Where-Object { -not $_.error }
@@ -195,7 +197,7 @@ function ,test {
 
 function ,models {
     try {
-        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/models" -TimeoutSec 10
+        $resp = Invoke-RestMethod -Uri "$($script:SHELLAMA_API)/models" -Headers (Get-ShellamaHeaders) -TimeoutSec 10
         $models = $resp.models
         Write-Host "Available models:" -ForegroundColor Cyan
         for ($i = 0; $i -lt $models.Count; $i++) {

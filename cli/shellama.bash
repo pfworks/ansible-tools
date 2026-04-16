@@ -21,6 +21,10 @@ SHELLAMA_BIN="${SHELLAMA_DIR}/shellama"
 export SHELLAMA_API="${SHELLAMA_API:-http://192.168.1.229:5000}"
 export SHELLAMA_MODEL="${SHELLAMA_MODEL:-qwen2.5-coder:7b}"
 export SHELLAMA_DOWNLOAD_DIR="${SHELLAMA_DOWNLOAD_DIR:-}"
+export SHELLAMA_API_KEY="${SHELLAMA_API_KEY:-}"
+
+# Session conversation ID (persists across , calls in same terminal)
+export SHELLAMA_CONV_ID="${SHELLAMA_CONV_ID:-$(python3 -c 'import uuid; print(uuid.uuid4())')}"
 
 # Add red HAL eye to prompt
 PS1="🔴 ${PS1}"
