@@ -790,7 +790,7 @@ if __name__ == '__main__':
         if cmd == 'agent':
             ai_agent(args, quiet=quiet)
         elif cmd == 'quiet':
-            ai_agent(args, quiet=True)
+            ai_simple('/chat', {'message': args, 'model': MODEL, 'conversation_id': SESSION_CONV_ID}, 'response')
         elif cmd == 'explain':
             content = read_file_arg(args)
             if content:

@@ -50,9 +50,9 @@ PS1="🔴 ${PS1}"
     python3 "$SHELLAMA_BIN" agent "$@"
 }
 
-# Quiet mode
+# Chat mode (no command execution)
 ,,() {
-    AI_QUIET=true python3 "$SHELLAMA_BIN" quiet "$@"
+    python3 "$SHELLAMA_BIN" quiet "$@"
 }
 
 # Named commands
