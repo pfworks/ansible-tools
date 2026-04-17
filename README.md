@@ -442,6 +442,23 @@ curl http://server:5000/cloud-costs
 
 Tokens from `/test` benchmarks are excluded so the tab reflects real usage only. The tab persists across restarts.
 
+### OpenAI-Compatible API
+
+Use sheLLaMa as a drop-in replacement for OpenAI in any tool:
+
+```bash
+export OPENAI_API_BASE=http://your-server:5000/v1
+export OPENAI_API_KEY=sk-your-key
+
+# Works with: Cursor, Continue, Open WebUI, LangChain, etc.
+curl -X POST http://server:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-key" \
+  -d '{"model": "fast", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+Model aliases work (`fast` → `llama3.2:1b`). Full auth, caching, rate limiting, and retry pipeline.
+
 ## Authentication
 
 Optional — disabled when `/etc/shellama/auth.json` doesn't exist.
