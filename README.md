@@ -25,8 +25,9 @@ Local LLM-powered tool for code generation, explanation, shell-to-Ansible conver
 - PowerShell integration (`powershell/shellama.ps1`) — dot-source in $PROFILE for , commands
 - PowerShell GUI (`powershell/powershellama-gui.ps1`, `powershell/powershellama-gui.cmd`) — Windows
 - Python GUI (`cli/shellama-gui.pyw`) — cross-platform
-- Admin console: Status (with cloud cost tab), Backends, Stats pages
-- REST API
+- Admin console: Status, Backends, Stats, Costs, Settings pages
+- OpenAI-compatible API (`/v1/chat/completions`) — works with Cursor, Continue, Open WebUI, LangChain
+- REST API — custom endpoints for chat, code gen, explain, analyze, image gen, benchmarking
 
 **Architecture:**
 - Standalone or distributed deployment
