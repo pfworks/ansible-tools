@@ -76,8 +76,8 @@ External tools → /v1/chat/completions (OpenAI-compatible)
 
 | Command | Endpoint | Description |
 |---|---|---|
-| `, <prompt>` | `/chat` (agentic) | Multi-round chat, AI executes commands, iterates up to 10 rounds |
-| `,, <prompt>` | `/chat` (quiet) | Output only, no confirmations |
+| `, <prompt>` | `/chat` | Chat with AI (conversation memory, no command execution) |
+| `,do <prompt>` | `/chat` (agentic) | Agentic mode — AI runs commands, iterates up to 10 rounds |
 | `,explain <file>` | `/explain` or `/explain-code` | Auto-detects .yml→playbook, other→code |
 | `,generate <desc>` | `/generate` or `/generate-code` | Keywords `ansible\|playbook\|shell command`→playbook, else→code |
 | `,analyze <paths>` | `/analyze` | Files and/or directories, recursive |

@@ -136,12 +136,12 @@ export SHELLAMA_MODEL=qwen2.5-coder:7b
 ./cli/shellama
 ```
 
-The CLI is a full bash shell with AI integration. Regular commands run in bash. Prefix with `,` to talk to the AI.
+The CLI is a full bash shell with AI integration. Regular commands run in bash. Prefix with `,` to chat with the AI, or `,do` for agentic mode (AI runs commands).
 
 | Command | Description |
 |---------|-------------|
-| `, <prompt>` | Agentic chat — AI runs commands, iterates up to 10 rounds |
-| `,, <prompt>` | Quiet mode — output only, no confirmations |
+| `, <prompt>` | Chat with AI (conversation memory, no command execution) |
+| `,do <prompt>` | Agentic mode — AI runs commands, asks Run? [y/N/q] |
 | `,explain <file>` | Explain any file (auto-detects .yml→playbook, other→code) |
 | `,generate <desc>` | Generate code (detects `ansible\|playbook\|shell command`→playbook) |
 | `,analyze <paths>` | Analyze files and/or directories recursively |
@@ -159,7 +159,7 @@ The CLI is a full bash shell with AI integration. Regular commands run in bash. 
 source /path/to/shellama/cli/shellama.bash
 ```
 
-Gives you all `,` commands in your real bash session. Full job control, history, tab completion, aliases, native PS1. The `,` functions call the Python CLI under the hood.
+Gives you all `,` commands in your real bash session. Full job control, history, tab completion, aliases, native PS1. `, ` is chat, `,do` is agentic mode, `,exit` to unload.
 
 ### PowerShell CLI (`powershell/powershellama.ps1`)
 
