@@ -29,6 +29,7 @@ export SHELLAMA_API_KEY="${SHELLAMA_API_KEY:-}"
 
 # Session conversation ID (persists across , calls in same terminal)
 export SHELLAMA_CONV_ID="${SHELLAMA_CONV_ID:-$(python3 -c 'import uuid; print(uuid.uuid4())')}"
+export SHELLAMA_SESSION_START="${SHELLAMA_SESSION_START:-$(python3 -c 'import time; print(time.time())')}"
 
 # Add red HAL eye to prompt
 _SHELLAMA_ORIG_PS1="$PS1"
