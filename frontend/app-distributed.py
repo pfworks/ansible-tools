@@ -260,6 +260,7 @@ backend_lock = Lock()
 # Health check tracking
 _health_failures = {b['url']: 0 for b in BACKENDS}  # consecutive failures
 _health_status = {b['url']: 'unknown' for b in BACKENDS}  # healthy/unhealthy/unknown
+_loaded_models = {b['url']: [] for b in BACKENDS}  # models currently in memory
 HEALTH_FAIL_THRESHOLD = 3  # mark unhealthy after N consecutive failures
 HEALTH_CHECK_INTERVAL = 30  # seconds
 
@@ -311,6 +312,11 @@ def _health_check_loop():
                     was_unhealthy = _health_status.get(url) == 'unhealthy'
                     _health_failures[url] = 0
                     _health_status[url] = 'healthy'
+                    # Cache loaded models
+                    try:
+                        _loaded_models[url] = resp.json().get('loaded_models', [])
+                    except:
+                        pass
                     if was_unhealthy:
                         _fire_webhook('backend_recovered', {'url': url})
                     continue
@@ -363,6 +369,7 @@ def get_available_backend(requested_model='codellama:13b', wait=True, timeout=30
                     backend_status[url]['cpu_arch'] = data.get('cpu_arch', 'x86_64')
                     backend_status[url]['cpu_count'] = data.get('cpu_count', 4)
                     backend_status[url]['cpu_freq_mhz'] = data.get('cpu_freq_mhz', 2000)
+                    _loaded_models[url] = data.get('loaded_models', _loaded_models.get(url, []))
                 else:
                     backend_status[url]['queue_size'] = 999
             
@@ -395,6 +402,9 @@ def get_available_backend(requested_model='codellama:13b', wait=True, timeout=30
                         freq = backend_status[url].get('cpu_freq_mhz', 2000)
                         arch_multiplier = 3.0 if arch == 'arm64' else 1.0
                         score = qs - (w * 0.1) + (cpu / 100.0) - (ram_total / 128.0) * arch_multiplier - (freq / 5000.0)
+                        # Big bonus if model is already loaded in memory (avoids cold start)
+                        if requested_model in _loaded_models.get(url, []):
+                            score -= 5.0
                         available.append((url, score))
             
             if available:

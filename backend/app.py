@@ -577,6 +577,13 @@ def queue_status():
         status['active_client'] = active_task.get('client_ip', '')
         status['active_agent'] = active_task.get('client_agent', '')
         status['active_summary'] = active_task.get('summary', '')
+
+    # Report models currently loaded in Ollama memory
+    try:
+        ps = ollama.ps()
+        status['loaded_models'] = [m.model for m in ps.models] if ps.models else []
+    except:
+        status['loaded_models'] = []
     
     return jsonify(status)
 
