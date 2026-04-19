@@ -640,13 +640,17 @@ def select_model():
         print("shellama: no models available", file=sys.stderr)
         return
     print(f"{CYAN}Available models:{RESET}")
+    print(f"  {YELLOW}0{RESET}) auto (smart routing){' ← current' if MODEL == 'auto' else ''}")
     for i, m in enumerate(models):
         size_gb = round(m.get('size', 0) / (1024**3), 1)
         current = " ← current" if m['name'] == MODEL else ""
         print(f"  {YELLOW}{i+1}{RESET}) {m['name']} ({size_gb}GB){current}")
     try:
-        choice = input(f"{GRAY}Select [1-{len(models)}]: {RESET}").strip()
-        if choice.isdigit() and 1 <= int(choice) <= len(models):
+        choice = input(f"{GRAY}Select [0-{len(models)}]: {RESET}").strip()
+        if choice == '0':
+            MODEL = 'auto'
+            print(f"model: auto")
+        elif choice.isdigit() and 1 <= int(choice) <= len(models):
             MODEL = models[int(choice)-1]['name']
             print(f"model: {MODEL}")
         else:
