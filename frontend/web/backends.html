@@ -100,8 +100,7 @@
                     let activeBadge = backend.active ?
                         '<span class="status-badge status-active">PROCESSING</span>' : '';
 
-                    let modelInfo = backend.active_model !== 'none' ?
-                        ` | Active Model: ${backend.active_model}` : '';
+                    let modelInfo = '';
 
                     const strength = getStrength(backend);
                     const sColor = strengthColor(strength);
@@ -116,9 +115,11 @@
                         const client = backend.active_client || 'unknown';
                         const agent = backend.active_agent || '';
                         const shortAgent = agent.length > 60 ? agent.substring(0, 60) + '...' : agent;
+                        const model = backend.active_model && backend.active_model !== 'none' ? backend.active_model : '';
                         taskHtml = `
                             <div class="task-info">
                                 <span class="task-label">Task:</span> ${backend.active_summary}<br>
+                                ${model ? '<span class="task-label">Model:</span> ' + model + '<br>' : ''}
                                 <span class="task-label">Client:</span> ${client}
                                 ${shortAgent ? ' <span class="task-label">Agent:</span> ' + shortAgent : ''}
                             </div>`;

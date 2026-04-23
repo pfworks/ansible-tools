@@ -67,7 +67,7 @@ def stale_task_reaper():
         started = active_task.get('started', 0)
         now = time.time()
         # Check max timeout
-        if started and (now - started) > TASK_TIMEOUT:
+        if TASK_TIMEOUT and started and (now - started) > TASK_TIMEOUT:
             stop_requested = True
             try:
                 import subprocess
@@ -75,10 +75,21 @@ def stale_task_reaper():
             except Exception:
                 pass
             continue
-        # Check if waiter is still alive (heartbeat within 30s)
+        # Check if waiter is still alive
         with _waiter_lock:
             waiter = task_waiters.get(task_id)
-        if waiter and (now - waiter['last_heartbeat']) > 30:
+        if waiter is None:
+            # No waiter registered — client disconnected, kill the task
+            # (give 15s grace period after task starts before checking)
+            if started and (now - started) > 15:
+                stop_requested = True
+                try:
+                    import subprocess
+                    subprocess.run(['pkill', '-f', 'ollama.*runner'], timeout=5, capture_output=True)
+                except Exception:
+                    pass
+        elif (now - waiter['last_heartbeat']) > 30:
+            # Waiter exists but heartbeat is stale — client hung
             stop_requested = True
             try:
                 import subprocess
@@ -909,7 +920,7 @@ def generate_image_endpoint():
     event = Event()
     task = {'id': task_id, 'prompt': prompt, 'image_model': image_model,
             'steps': steps, 'width': width, 'height': height,
-            'model': 'none', 'event': event, 'force_cloud': request.json.get('force_cloud', False), 'type': 'generate_image',
+            'model': image_model, 'event': event, 'force_cloud': request.json.get('force_cloud', False), 'type': 'generate_image',
             'client_ip': request.json.get('client_ip', request.remote_addr),
             'client_agent': request.json.get('client_agent', request.headers.get('User-Agent', '')),
             'summary': f'image: {prompt[:80]}'}
