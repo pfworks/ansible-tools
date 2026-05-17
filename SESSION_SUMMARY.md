@@ -47,6 +47,8 @@ shellama/
 │   ├── cloud-fallback-setup.md   # OpenRouter + LiteLLM guide
 │   ├── cloud-fallback-setup.pdf  # PDF version
 │   ├── cloud-fallback-setup.tex  # LaTeX source
+│   ├── cloud-cost-estimation.tex # Cost estimation white paper (LaTeX)
+│   ├── cloud-cost-estimation.pdf # Cost estimation white paper (PDF)
 │   └── SECURITY_CLEANUP.md
 ├── bin/                        # Certificate management
 │   ├── generate-certs.sh
@@ -225,6 +227,16 @@ External tools → /v1/chat/completions (OpenAI-compatible)
 - 13 Bedrock models: Claude Opus 4, Claude 4 Sonnet, Claude 3.5 Sonnet/Haiku, Nova Pro/Lite/Micro/Premier, Llama 4 Maverick/Scout, Llama 3.3 70B, DeepSeek R1, Mistral Large 3
 - Prices fetched live from AWS Pricing API (`aws pricing get-products`), static fallback for models not yet in API (e.g., newer Claude)
 - Bedrock section displayed with AWS orange styling, separate from OpenRouter providers
+
+### Cloud AI Cost Estimation Platform
+- sheLLaMa tracks every token consumed and projects costs across 28+ cloud models
+- Live pricing from OpenRouter API and AWS Pricing API; static fallback when offline
+- Costs page: time-range filtering (day/week/month/year/custom), hypothetical vs actual fallback spend
+- Per-IP, per-key, per-task token tracking for granular cost attribution
+- Benchmark exclusion: /test tokens excluded from running tab
+- Cache awareness: cached responses tracked separately (savings not available on cloud)
+- Use cases: pre-migration planning, provider comparison, ROI calculation, budget forecasting, hybrid optimization
+- White paper: `docs/cloud-cost-estimation.pdf` (LaTeX source: `docs/cloud-cost-estimation.tex`)
 
 ### Backend Leak Prevention
 - `proxy_request` uses `try/finally` to guarantee `release_backend()` is always called

@@ -1,0 +1,509 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{tabularx}
+\usepackage{float}
+
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{gray!10},
+  frame=single,
+  framerule=0.5pt,
+  rulecolor=\color{gray!50},
+  breaklines=true,
+  breakatwhitespace=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  aboveskip=8pt,
+  belowskip=8pt,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\texttt{sheLLaMa}}
+\fancyhead[R]{Cloud AI Cost Estimation}
+\fancyfoot[C]{\thepage}
+
+\title{\textbf{sheLLaMa as a Cloud AI Cost Estimation Platform}\\[4pt]\large Measuring Local LLM Usage to Project Cloud Provider Spend}
+\author{sheLLaMa Project}
+\date{May 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+Organizations adopting AI face a critical question: what would our workload cost on cloud AI providers? sheLLaMa answers this by running inference locally on commodity hardware while simultaneously tracking every token consumed and projecting costs across 28+ cloud models from OpenRouter, Amazon Bedrock, OpenAI, Anthropic, Google, xAI, and Meta. This paper describes the architecture, methodology, and practical use of sheLLaMa as a cloud AI cost estimation and capacity planning tool.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%----------------------------------------------------------------------
+\section{Introduction}
+
+Cloud AI services charge per token---typically split into input (prompt) and output (completion) tokens. Pricing varies by orders of magnitude: from \$0.035/M tokens (Amazon Nova Micro) to \$75/M tokens (Claude Opus 4 output). For organizations evaluating AI adoption, the question is not whether AI is useful, but whether the cost is justified at their usage volume.
+
+sheLLaMa provides a zero-cost way to answer this question:
+
+\begin{enumerate}
+  \item Run your actual AI workloads locally (code generation, chat, analysis, shell automation)
+  \item The platform counts every prompt and response token consumed
+  \item Real-time cost projections show what the same usage would cost on each cloud provider
+  \item Benchmarking compares local model quality against cloud alternatives
+\end{enumerate}
+
+The result is a data-driven cost estimate based on \emph{actual usage patterns}, not hypothetical projections.
+
+%----------------------------------------------------------------------
+\section{The Cost Estimation Problem}
+
+\subsection{Why Estimation is Hard}
+
+Cloud AI pricing is complex:
+
+\begin{itemize}
+  \item \textbf{Asymmetric pricing}: Input and output tokens have different rates (e.g., Claude 4 Sonnet: \$3/M input, \$15/M output)
+  \item \textbf{Variable output length}: The same prompt can produce vastly different response lengths depending on the model and task
+  \item \textbf{Workload mix}: Organizations use AI for diverse tasks---chat, code generation, document analysis, shell automation---each with different token profiles
+  \item \textbf{Rapid price changes}: Cloud providers update pricing frequently; static spreadsheet estimates become stale
+  \item \textbf{Hidden costs}: Rate limiting, retries, conversation context accumulation, and cache misses all inflate real-world spend
+\end{itemize}
+
+\subsection{sheLLaMa's Approach}
+
+Rather than estimating from assumptions, sheLLaMa measures actual usage:
+
+\begin{itemize}
+  \item Every request records \texttt{prompt\_tokens} and \texttt{response\_tokens} from Ollama's response metadata
+  \item Token counts are accumulated per client IP, per task type, and per API key
+  \item Cost projections use \textbf{live pricing} fetched from OpenRouter's API and AWS Pricing API
+  \item Static fallback prices are maintained for when APIs are unreachable
+  \item Benchmark tokens are excluded from cost projections to reflect real usage only
+\end{itemize}
+
+%----------------------------------------------------------------------
+\section{Architecture for Cost Tracking}
+
+\subsection{Token Recording Pipeline}
+
+Every request flowing through the frontend load balancer is instrumented:
+
+\begin{lstlisting}[language=Python,caption={Token recording in proxy\_request}]
+record_ip_tokens(
+    ip=client_ip,
+    tokens=result.get('total_tokens', 0),
+    task_type=task_type,
+    prompt_tokens=result.get('prompt_tokens', 0),
+    response_tokens=result.get('response_tokens', 0),
+    cloud_fallback=result.get('cloud_fallback', False),
+    key_name=get_key_name()
+)
+\end{lstlisting}
+
+Tokens are stored in three dimensions:
+
+\begin{itemize}
+  \item \textbf{Cumulative totals} (persisted to disk, survive restarts)
+  \item \textbf{Per-IP history} (timestamped entries for time-range queries)
+  \item \textbf{Per-task breakdown} (chat, generate, explain, analyze, image)
+\end{itemize}
+
+\subsection{Pricing Data Sources}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lXl}
+\toprule
+\textbf{Source} & \textbf{Models Covered} & \textbf{Refresh} \\
+\midrule
+OpenRouter API & Claude, GPT-4o, Gemini, Grok, Llama, Nova (15 models) & Per /test request \\
+AWS Pricing API & Bedrock on-demand: Nova, Llama, DeepSeek, Mistral (9 models) & Per /test request \\
+Static fallback & All 28 models (hardcoded) & Code updates \\
+\bottomrule
+\end{tabularx}
+\caption{Pricing data sources and coverage}
+\end{table}
+
+The system attempts live pricing first. If OpenRouter or AWS is unreachable (offline environments), static fallback prices are used. The response always includes \texttt{pricing\_source} (\texttt{openrouter} or \texttt{static}) so users know the data freshness.
+
+\subsection{Cost Calculation}
+
+For each provider, the cost formula is:
+
+\[
+\text{Cost} = \frac{\text{prompt\_tokens} \times P_{\text{input}}}{1{,}000{,}000} + \frac{\text{response\_tokens} \times P_{\text{output}}}{1{,}000{,}000}
+\]
+
+where $P_{\text{input}}$ and $P_{\text{output}}$ are per-million-token rates.
+
+%----------------------------------------------------------------------
+\section{Supported Cloud Providers and Models}
+
+\subsection{OpenRouter Models (via API)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{Model} & \textbf{Input (\$/M)} & \textbf{Output (\$/M)} \\
+\midrule
+Claude 4 Sonnet & 3.00 & 15.00 \\
+Claude 4 Haiku & 1.00 & 5.00 \\
+Claude 3.5 Sonnet & 3.00 & 15.00 \\
+GPT-4o & 2.50 & 10.00 \\
+GPT-4o mini & 0.15 & 0.60 \\
+OpenAI o3 & 2.00 & 8.00 \\
+OpenAI o4-mini & 1.10 & 4.40 \\
+Gemini 2.5 Pro & 1.25 & 10.00 \\
+Gemini 2.5 Flash & 0.30 & 2.50 \\
+Grok 3 & 3.00 & 15.00 \\
+Grok 3 mini & 0.30 & 0.50 \\
+Llama 3.1 70B & 0.40 & 0.40 \\
+Amazon Nova Pro & 0.80 & 3.20 \\
+Amazon Nova Lite & 0.06 & 0.24 \\
+Amazon Nova Micro & 0.04 & 0.14 \\
+\bottomrule
+\end{tabular}
+\caption{OpenRouter model pricing (static fallback values; live prices may differ)}
+\end{table}
+
+\subsection{Amazon Bedrock Models (via AWS Pricing API)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{Model} & \textbf{Input (\$/M)} & \textbf{Output (\$/M)} \\
+\midrule
+Claude Opus 4 & 15.00 & 75.00 \\
+Claude 4 Sonnet & 3.00 & 15.00 \\
+Claude 3.5 Sonnet & 3.00 & 15.00 \\
+Claude 3.5 Haiku & 0.80 & 4.00 \\
+Nova Pro & 0.80 & 3.20 \\
+Nova Lite & 0.06 & 0.24 \\
+Nova Micro & 0.035 & 0.14 \\
+Nova Premier & 2.50 & 12.50 \\
+Llama 4 Maverick & 0.24 & 0.97 \\
+Llama 4 Scout & 0.17 & 0.66 \\
+Llama 3.3 70B & 0.72 & 0.72 \\
+DeepSeek R1 & 1.35 & 5.40 \\
+Mistral Large 3 & 0.50 & 1.50 \\
+\bottomrule
+\end{tabular}
+\caption{Amazon Bedrock on-demand pricing (us-east-1, static fallback values)}
+\end{table}
+
+%----------------------------------------------------------------------
+\section{Cost Estimation Interfaces}
+
+\subsection{Admin Console --- Costs Page}
+
+The web-based costs page (\texttt{/costs}) provides:
+
+\begin{itemize}
+  \item \textbf{Time range filtering}: Day, week, month, year, all-time, or custom date range
+  \item \textbf{Hypothetical costs}: What your total local usage would cost on each cloud provider
+  \item \textbf{Actual fallback spend}: Real costs incurred when cloud fallback was triggered
+  \item \textbf{Cached savings}: Tokens served from cache that would have cost money on cloud
+  \item \textbf{Visual indicators}: Cheapest provider highlighted green, most expensive in red
+  \item \textbf{Bedrock section}: Separated with AWS orange styling for clarity
+  \item \textbf{Live pricing source}: Shows whether prices are from OpenRouter or static fallback
+\end{itemize}
+
+\subsection{CLI Benchmarking}
+
+The \texttt{,test} command provides per-request cost estimates:
+
+\begin{lstlisting}[caption={CLI benchmark with cost estimates}]
+$ ,test all
+Testing 4 models with default prompt...
+
+Model               Time    Prompt  Response  Total   tok/s
+qwen2.5-coder:3b    12.3s   142     387       529     43.1
+qwen2.5-coder:7b    34.7s   142     412       554     16.0
+deepseek-coder:6.7b 38.2s   142     395       537     14.1
+qwen2.5-coder:14b   97.1s   142     445       587     6.0
+
+Cloud cost estimates (avg 142 prompt + 410 response tokens):
+Provider            Input       Output      Total
+Claude 4 Sonnet     $0.000426   $0.006150   $0.006576
+GPT-4o              $0.000355   $0.004100   $0.004455
+Amazon Nova Micro   $0.000005   $0.000057   $0.000062
+...
+\end{lstlisting}
+
+\subsection{REST API}
+
+\begin{lstlisting}[caption={Cost estimation via API}]
+# Get cumulative cost projections
+curl http://server:5000/cloud-costs
+
+# Get costs for a specific time range
+curl "http://server:5000/cost-history?since=1715900000&until=1716000000"
+
+# Benchmark with cost comparison
+curl -X POST http://server:5000/test \
+  -H "Content-Type: application/json" \
+  -d '{"model": "all"}'
+\end{lstlisting}
+
+%----------------------------------------------------------------------
+\section{Use Cases for Cost Estimation}
+
+\subsection{Pre-Migration Planning}
+
+Before committing to a cloud AI provider, run sheLLaMa for 1--4 weeks with your team's actual workload. The costs page will show:
+
+\begin{itemize}
+  \item Total monthly projected spend per provider
+  \item Which provider offers the best price for your workload mix
+  \item Whether cheaper models (Nova Micro, GPT-4o mini) are viable alternatives
+  \item The ratio of input to output tokens in your usage (affects provider choice)
+\end{itemize}
+
+\subsection{Budget Forecasting}
+
+The time-range filtering enables trend analysis:
+
+\begin{itemize}
+  \item Daily token consumption patterns (peak hours, quiet periods)
+  \item Week-over-week growth as AI adoption increases
+  \item Per-user or per-team breakdown via API key tracking
+  \item Seasonal patterns in development cycles
+\end{itemize}
+
+\subsection{Provider Comparison}
+
+The 28-model comparison table answers questions like:
+
+\begin{itemize}
+  \item ``Is Bedrock cheaper than OpenRouter for our workload?''
+  \item ``How much would we save switching from Claude to Nova Pro?''
+  \item ``What's the cost difference between GPT-4o and GPT-4o mini for our use case?''
+  \item ``Is the 5x price premium of Claude Opus justified over Claude Sonnet?''
+\end{itemize}
+
+\subsection{ROI Calculation for Local Infrastructure}
+
+Compare the projected cloud spend against the cost of local hardware:
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{Xrr}
+\toprule
+\textbf{Scenario} & \textbf{Local Cost} & \textbf{Cloud Cost (monthly)} \\
+\midrule
+Light usage (10K tokens/day) & Server: \$2,000 one-time & \$0.50--\$15/mo \\
+Medium usage (100K tokens/day) & Server: \$4,000 one-time & \$5--\$150/mo \\
+Heavy usage (1M tokens/day) & Server: \$8,000 one-time & \$50--\$1,500/mo \\
+Team (10 devs, 5M tokens/day) & 2 servers: \$10,000 & \$250--\$7,500/mo \\
+\bottomrule
+\end{tabularx}
+\caption{Break-even analysis: local hardware vs.\ cloud AI spend}
+\end{table}
+
+At heavy usage, local infrastructure pays for itself in 1--6 months depending on the cloud provider chosen.
+
+\subsection{Hybrid Strategy Optimization}
+
+sheLLaMa's cloud fallback feature enables a hybrid approach:
+
+\begin{enumerate}
+  \item Run most requests locally (zero marginal cost)
+  \item Fall back to cloud only when local quality is insufficient
+  \item Track actual fallback spend separately from hypothetical costs
+  \item Set per-key budgets to cap cloud spend: \texttt{"budget": \{"max\_daily": 5.00\}}
+  \item Receive webhook alerts at 80\% budget consumption
+\end{enumerate}
+
+The costs page separates hypothetical costs (``what if everything ran on cloud'') from actual fallback spend (``what we actually paid''), giving a clear picture of savings.
+
+%----------------------------------------------------------------------
+\section{Implementation Details}
+
+\subsection{Persistent Statistics}
+
+Cost data survives service restarts:
+
+\begin{itemize}
+  \item Cumulative token totals saved to \texttt{persisted\_totals.json} every 60 seconds
+  \item Per-IP history maintained in memory with configurable retention
+  \item Background thread handles periodic persistence
+  \item \texttt{/reset-cloud-costs} endpoint for admin to clear data (requires admin role)
+\end{itemize}
+
+\subsection{Benchmark Exclusion}
+
+Tokens from \texttt{/test} benchmark requests are excluded from cost projections. This ensures the running tab reflects real usage only---not artificial load from model comparison tests.
+
+\subsection{Cache Awareness}
+
+When prompt caching is enabled (default 5-minute TTL), cached responses are tracked separately. The costs page shows how many tokens were served from cache---representing additional savings that would not exist on most cloud providers (which charge per request regardless of caching).
+
+\subsection{Live Pricing Refresh}
+
+\begin{lstlisting}[language=Python,caption={Live pricing fetch from OpenRouter}]
+def fetch_cloud_pricing():
+    resp = requests.get('https://openrouter.ai/api/v1/models', timeout=10)
+    data = resp.json().get('data', [])
+    by_id = {}
+    for m in data:
+        p = m.get('pricing', {})
+        prompt = float(p.get('prompt', '0'))
+        comp = float(p.get('completion', '0'))
+        if prompt > 0 or comp > 0:
+            by_id[m['id']] = {'input': prompt * 1e6, 'output': comp * 1e6}
+    # Map display names to live prices...
+\end{lstlisting}
+
+Bedrock pricing is fetched via the AWS CLI:
+
+\begin{lstlisting}[caption={AWS Pricing API call}]
+aws pricing get-products --service-code AmazonBedrock \
+  --region us-east-1 \
+  --filters Type=TERM_MATCH,Field=regionCode,Value=us-east-1
+\end{lstlisting}
+
+\subsection{Per-Key Budget Enforcement}
+
+API keys can have spending limits that are enforced on actual cloud fallback spend:
+
+\begin{lstlisting}[language=json,caption={API key with budget limit}]
+{
+  "api_keys": {
+    "sk-team-dev": {
+      "name": "dev-team",
+      "role": "user",
+      "budget": {"max_daily": 10.00},
+      "rate_limit": {"rpm": 30, "tpd": 500000}
+    }
+  }
+}
+\end{lstlisting}
+
+When the budget is 80\% consumed, a webhook fires. At 100\%, cloud fallback requests are rejected with HTTP 429.
+
+%----------------------------------------------------------------------
+\section{Deployment for Cost Estimation}
+
+\subsection{Minimal Setup (Single Server)}
+
+\begin{lstlisting}[language=bash,caption={Quick start for cost estimation}]
+# Install and start
+ollama pull qwen2.5-coder:7b
+pip install flask ollama pyyaml requests psutil
+python backend/app.py
+
+# Point your team's CLI clients at the server
+export SHELLAMA_API=http://server:5000
+export SHELLAMA_MODEL=qwen2.5-coder:7b
+source cli/shellama.bash
+
+# Use AI normally for 1-4 weeks, then check costs
+curl http://server:5000/cloud-costs | python -m json.tool
+\end{lstlisting}
+
+\subsection{Distributed Setup (Production)}
+
+For larger teams, deploy the frontend load balancer with multiple backends:
+
+\begin{lstlisting}[language=json,caption={backends.json for multi-server deployment}]
+{
+  "backends": [
+    {"url": "http://192.168.1.230:5000", "weight": 10, "max_model": "qwen2.5-coder:7b"},
+    {"url": "http://192.168.1.233:5000", "weight": 10, "max_model": "qwen2.5-coder:14b"}
+  ]
+}
+\end{lstlisting}
+
+All token tracking is centralized on the frontend, regardless of which backend processes the request.
+
+%----------------------------------------------------------------------
+\section{Interpreting Results}
+
+\subsection{Reading the Cost Table}
+
+A typical \texttt{/cloud-costs} response after one week of team usage:
+
+\begin{lstlisting}[language=json]
+{
+  "prompt_tokens": 847293,
+  "response_tokens": 2341567,
+  "total_tokens": 3188860,
+  "pricing_source": "openrouter",
+  "cloud_costs": [
+    {"provider": "Claude 4 Sonnet", "total_cost": 37.66},
+    {"provider": "GPT-4o", "total_cost": 25.53},
+    {"provider": "Gemini 2.5 Flash", "total_cost": 6.11},
+    {"provider": "Amazon Nova Micro", "total_cost": 0.36},
+    {"provider": "Bedrock Claude Opus 4", "total_cost": 188.22}
+  ]
+}
+\end{lstlisting}
+
+\textbf{Interpretation}: This team's weekly AI usage would cost between \$0.36 (Nova Micro) and \$188.22 (Claude Opus 4) on cloud providers. The local infrastructure cost is \$0 marginal after hardware purchase.
+
+\subsection{Token Ratio Analysis}
+
+The ratio of prompt to response tokens affects provider choice:
+
+\begin{itemize}
+  \item \textbf{High output ratio} (code generation, explanations): Providers with low output pricing win (Nova Micro, Llama, GPT-4o mini)
+  \item \textbf{High input ratio} (analysis of large files, context-heavy chat): Providers with low input pricing win (Gemini with large context, Nova Lite)
+  \item \textbf{Balanced}: Overall total cost is the deciding factor
+\end{itemize}
+
+\subsection{Quality vs.\ Cost Tradeoff}
+
+The \texttt{,test} benchmark lets you compare local model quality against cloud alternatives. If a \$0.04/request local model produces acceptable output for 95\% of tasks, the ROI of local infrastructure is clear. The 5\% that needs cloud fallback can be budgeted precisely using the actual fallback tracking.
+
+%----------------------------------------------------------------------
+\section{Limitations}
+
+\begin{itemize}
+  \item \textbf{Token counts are model-dependent}: Different tokenizers produce different counts for the same text. Local Ollama token counts are approximate proxies for cloud provider counts.
+  \item \textbf{Pricing changes}: Live pricing is fetched per-request for benchmarks but cached otherwise. Prices may change between fetches.
+  \item \textbf{No latency costing}: Cloud providers may offer faster responses; the cost of developer wait time is not captured.
+  \item \textbf{No quality weighting}: A cheap model that requires 3 retries may cost more than an expensive model that succeeds first try. This is partially addressed by the fallback tracking.
+  \item \textbf{Region-specific}: Bedrock pricing is for us-east-1. Other regions may differ.
+\end{itemize}
+
+%----------------------------------------------------------------------
+\section{Conclusion}
+
+sheLLaMa transforms local LLM infrastructure into a cloud AI cost estimation platform. By running actual workloads locally and projecting costs across 28+ cloud models with live pricing, organizations can make data-driven decisions about:
+
+\begin{itemize}
+  \item Whether to adopt cloud AI services
+  \item Which provider offers the best value for their specific workload
+  \item When local infrastructure ROI exceeds cloud spend
+  \item How to budget for hybrid local+cloud deployments
+  \item Per-team and per-project cost allocation
+\end{itemize}
+
+The platform requires no cloud accounts, no API keys, and no ongoing costs to operate as a cost estimator. It runs fully offline after the initial model pull, making it suitable for air-gapped environments and organizations evaluating AI adoption without committing to vendor contracts.
+
+%----------------------------------------------------------------------
+\section{References}
+
+\begin{itemize}
+  \item OpenRouter pricing API: \url{https://openrouter.ai/api/v1/models}
+  \item AWS Bedrock pricing: \url{https://aws.amazon.com/bedrock/pricing/}
+  \item Ollama: \url{https://ollama.com}
+  \item sheLLaMa source: \url{https://github.com/rory/shellama}
+\end{itemize}
+
+\end{document}

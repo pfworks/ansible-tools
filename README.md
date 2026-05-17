@@ -81,6 +81,8 @@ shellama/
 │   ├── cloud-fallback-setup.md   # OpenRouter + LiteLLM guide
 │   ├── cloud-fallback-setup.pdf  # PDF version
 │   ├── cloud-fallback-setup.tex  # LaTeX source
+│   ├── cloud-cost-estimation.tex # Cost estimation white paper (LaTeX)
+│   ├── cloud-cost-estimation.pdf # Cost estimation white paper (PDF)
 │   └── SECURITY_CLEANUP.md
 └── bin/                        # Certificate management
     ├── generate-certs.sh
@@ -432,6 +434,27 @@ curl -X POST http://server:5000/test \
 #   input_cost, output_cost, total_cost}], "pricing_source": "openrouter"}
 ```
 
+### Cloud AI Cost Estimation
+
+sheLLaMa doubles as a **cloud AI cost estimation platform**. Every token consumed locally is tracked and projected across 28+ cloud models with live pricing from OpenRouter and AWS Bedrock.
+
+**How it works:**
+1. Use AI normally (chat, code gen, analysis, shell automation)
+2. sheLLaMa counts every prompt and response token
+3. Real-time cost projections show what the same usage would cost on each cloud provider
+4. Time-range filtering (day/week/month/year/custom) enables trend analysis and budget forecasting
+
+**Supported providers:** Claude (Opus 4, Sonnet 4, 3.5), GPT-4o/mini, OpenAI o3/o4-mini, Gemini 2.5 Pro/Flash, Grok 3/mini, Llama 3.1 70B, Amazon Nova (Pro/Lite/Micro/Premier), Bedrock Llama 4, DeepSeek R1, Mistral Large 3.
+
+**Use cases:**
+- Pre-migration planning: run your team's workload locally for 1–4 weeks, then see projected cloud spend
+- Provider comparison: which provider is cheapest for your specific workload mix?
+- ROI calculation: when does local hardware pay for itself vs. cloud?
+- Budget forecasting: per-user, per-team, per-task cost breakdown
+- Hybrid optimization: track actual cloud fallback spend separately from hypothetical costs
+
+See `docs/cloud-cost-estimation.pdf` for the full white paper.
+
 ### Cloud Cost Running Tab
 
 Track what your total usage would have cost on cloud providers:
@@ -444,6 +467,15 @@ curl http://server:5000/cloud-costs
 ```
 
 Tokens from `/test` benchmarks are excluded so the tab reflects real usage only. The tab persists across restarts.
+
+Filter by time range:
+```bash
+# Last 24 hours
+curl "http://server:5000/cost-history?since=$(date -d '1 day ago' +%s)"
+
+# Custom range
+curl "http://server:5000/cost-history?since=1715900000&until=1716000000"
+```
 
 ### OpenAI-Compatible API
 
